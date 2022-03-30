@@ -1,3 +1,4 @@
+FROM tufitko/terragrunt-atlantis-config:latest  as config-generator
 # Stage 1: build artifact
 FROM golang:1.17-alpine AS builder
 
@@ -58,9 +59,45 @@ RUN ln -s /usr/local/bin/cft/versions/${DEFAULT_CONFTEST_VERSION}/conftest /usr/
 
 # copy binary
 COPY --from=builder /app/atlantis /usr/local/bin/atlantis
+COPY --from=config-generator /app/terragrunt-atlantis-config /usr/local/bin/terragrunt-atlantis-config
 
 # copy docker entrypoint
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["server"]
+
+ENV APK_DEPENDENCIES="curl gcompat" \
+    PIP_DEPENDENCIES="" \
+    PATHS_TO_REMOVE="\
+      /usr/include/* \
+      /usr/share/man/* \
+      /var/cache/apk/* \
+      ~/.cache/pip/* \
+      /var/cache/misc/*"
+
+RUN apk add --update --upgrade --no-cache ${APK_DEPENDENCIES} \
+    && rm -rf ${PATHS_TO_REMOVE} \
+    && cd /tmp \
+    && curl -LO https://github.com/gruntwork-io/terragrunt/releases/download/$(curl --silent "https://api.github.com/repos/gruntwork-io/terragrunt/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')/terragrunt_linux_amd64 \
+    && mv terragrunt_linux_amd64 /bin/terragrunt \
+    && chmod +x /bin/terragrunt
+
+RUN TERRAHELP_VERSION=$(curl --silent "https://api.github.com/repos/opencredo/terrahelp/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' | sed -E 's/v//') \
+    && cd /tmp \
+    && curl -LO https://github.com/opencredo/terrahelp/releases/download/v${TERRAHELP_VERSION}/terrahelp_${TERRAHELP_VERSION}_linux_amd64.tar.gz \
+    && mkdir terrahelp_${TERRAHELP_VERSION}_linux_amd64 \
+    && tar -zxvf terrahelp_${TERRAHELP_VERSION}_linux_amd64.tar.gz --directory terrahelp_${TERRAHELP_VERSION}_linux_amd64 \
+    && ls -l . \
+    && mv /tmp/terrahelp_${TERRAHELP_VERSION}_linux_amd64/terrahelp /bin/terrahelp \
+    && chmod +x /bin/terrahelp
+
+RUN rm -rf /tmp/*
+
+#COPY ./version-info /usr/bin
+#RUN chmod +x /usr/bin/version-info
+#
+#COPY format-diff-output.sh  /usr/local/bin/
+#RUN chmod +x /usr/local/bin/format-diff-output.sh
+
+WORKDIR /

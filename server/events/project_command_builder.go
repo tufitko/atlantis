@@ -3,6 +3,8 @@ package events
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"sort"
 
 	"github.com/runatlantis/atlantis/server/core/config/valid"
 	"github.com/runatlantis/atlantis/server/logging"
@@ -466,6 +468,17 @@ func (p *DefaultProjectCommandBuilder) buildAllProjectCommands(ctx *command.Cont
 		}
 		cmds = append(cmds, commentCmds...)
 	}
+
+	// sort order of execution by projects dependencies
+	sort.Slice(cmds, func(i, j int) bool {
+		for _, dep := range cmds[j].WhenModifiedDependencies {
+			if cmds[i].RepoRelDir == filepath.Dir(filepath.Join(cmds[j].RepoRelDir, dep)) {
+				return true
+			}
+		}
+		return false
+	})
+
 	return cmds, nil
 }
 

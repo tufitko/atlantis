@@ -36,6 +36,8 @@ type ProjectContext struct {
 	ParallelPolicyCheckEnabled bool
 	// AutoplanEnabled is true if autoplanning is enabled for this project.
 	AutoplanEnabled bool
+	// When_modified from project
+	WhenModifiedDependencies []string
 	// BaseRepo is the repository that the pull request will be merged into.
 	BaseRepo models.Repo
 	// EscapedCommentArgs are the extra arguments that were added to the atlantis
