@@ -787,6 +787,7 @@ func NewServer(userConfig UserConfig, config Config) (*Server, error) {
 		lockingClient,
 		userConfig.DiscardApprovalOnPlanFlag,
 		pullReqStatusFetcher,
+		projectLocker,
 	)
 
 	applyCommandRunner := events.NewApplyCommandRunner(
