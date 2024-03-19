@@ -167,6 +167,7 @@ func setup(t *testing.T, options ...func(testConfig *TestConfig)) *vcsmocks.Mock
 		lockingLocker,
 		testConfig.discardApprovalOnPlan,
 		pullReqStatusFetcher,
+		nil,
 	)
 
 	applyCommandRunner = events.NewApplyCommandRunner(
