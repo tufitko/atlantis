@@ -59,9 +59,12 @@ func (w *DefaultPreWorkflowHooksCommandRunner) RunPreHooks(ctx *command.Context,
 	ctx.Log.Debug("got workspace lock")
 	defer unlockFn()
 
-	repoDir, _, err := w.WorkingDir.Clone(ctx.Log, ctx.HeadRepo, ctx.Pull, DefaultWorkspace)
-	if err != nil {
-		return err
+	var repoDir string
+	if cmd.Name == command.Plan {
+		repoDir, _, err = w.WorkingDir.CloneForce(ctx.Log, ctx.HeadRepo, ctx.Pull, DefaultWorkspace)
+		if err != nil {
+			return err
+		}
 	}
 
 	var escapedArgs []string
@@ -97,6 +100,13 @@ func (w *DefaultPreWorkflowHooksCommandRunner) RunPreHooks(ctx *command.Context,
 
 	if err != nil {
 		return err
+	}
+
+	if cmd.Name == command.Plan {
+		repoDir, _, err = w.WorkingDir.CloneCheckUpstreams(ctx.Log, ctx.HeadRepo, ctx.Pull, DefaultWorkspace)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil

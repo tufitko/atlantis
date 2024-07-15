@@ -2,6 +2,7 @@ package events
 
 import (
 	"github.com/pkg/errors"
+	"github.com/runatlantis/atlantis/server/core/config/valid"
 	"github.com/runatlantis/atlantis/server/core/locking"
 	"github.com/runatlantis/atlantis/server/events/command"
 	"github.com/runatlantis/atlantis/server/events/models"
@@ -148,7 +149,7 @@ func (p *PlanCommandRunner) runAutoplan(ctx *command.Context) {
 			}
 
 			// Lock the project
-			lockResponse, err := p.projectLocker.TryLock(pctx.Log, pctx.Pull, pctx.User, pctx.Workspace, models.NewProject(pctx.Pull.BaseRepo.FullName, pctx.RepoRelDir, pctx.ProjectName), pctx.RepoLocking)
+			lockResponse, err := p.projectLocker.TryLock(pctx.Log, pctx.Pull, pctx.User, pctx.Workspace, models.NewProject(pctx.Pull.BaseRepo.FullName, pctx.RepoRelDir, pctx.ProjectName), pctx.RepoLocksMode == valid.RepoLocksOnPlanMode)
 			if err != nil {
 				pctx.Log.Err("locking project: %s", err)
 				lockResult.Error = errors.Wrap(err, "acquiring lock")
@@ -316,7 +317,7 @@ func (p *PlanCommandRunner) run(ctx *command.Context, cmd *CommentCommand) {
 			}
 
 			// Lock the project
-			lockResponse, err := p.projectLocker.TryLock(pctx.Log, pctx.Pull, pctx.User, pctx.Workspace, models.NewProject(pctx.Pull.BaseRepo.FullName, pctx.RepoRelDir, pctx.ProjectName), pctx.RepoLocking)
+			lockResponse, err := p.projectLocker.TryLock(pctx.Log, pctx.Pull, pctx.User, pctx.Workspace, models.NewProject(pctx.Pull.BaseRepo.FullName, pctx.RepoRelDir, pctx.ProjectName), pctx.RepoLocksMode == valid.RepoLocksOnPlanMode)
 			if err != nil {
 				pctx.Log.Err("locking project: %s", err)
 				lockResult.Error = errors.Wrap(err, "acquiring lock")

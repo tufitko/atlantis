@@ -43,6 +43,8 @@ type WorkingDir interface {
 	// a boolean indicating if we should warn users that the branch we're
 	// merging into has been updated since we cloned it.
 	Clone(logger logging.SimpleLogging, headRepo models.Repo, p models.PullRequest, workspace string) (string, bool, error)
+	CloneForce(logger logging.SimpleLogging, headRepo models.Repo, p models.PullRequest, workspace string) (string, bool, error)
+	CloneCheckUpstreams(logger logging.SimpleLogging, headRepo models.Repo, p models.PullRequest, workspace string) (string, bool, error)
 	// GetWorkingDir returns the path to the workspace for this repo and pull.
 	// If workspace does not exist on disk, error will be of type os.IsNotExist.
 	GetWorkingDir(r models.Repo, p models.PullRequest, workspace string) (string, error)
@@ -55,6 +57,7 @@ type WorkingDir interface {
 	// the upstream branch has been modified. This is only safe after grabbing the project lock
 	// and before running any plans
 	SetCheckForUpstreamChanges()
+	SetForceClone()
 	// DeletePlan deletes the plan for this repo, pull, workspace path and project name
 	DeletePlan(logger logging.SimpleLogging, r models.Repo, p models.PullRequest, workspace string, path string, projectName string) error
 	// GetGitUntrackedFiles returns a list of Git untracked files in the working dir.
@@ -87,6 +90,8 @@ type FileWorkspace struct {
 	GpgNoSigningEnabled bool
 	// flag indicating if we have to merge with potential new changes upstream (directly after grabbing project lock)
 	CheckForUpstreamChanges bool
+	ForceClone              bool
+	Logger                  logging.SimpleLogging
 }
 
 // Clone git clones headRepo, checks out the branch and then returns the absolute
@@ -97,9 +102,69 @@ type FileWorkspace struct {
 // multiple dirs of the same repo without deleting existing plans.
 func (w *FileWorkspace) Clone(logger logging.SimpleLogging, headRepo models.Repo, p models.PullRequest, workspace string) (string, bool, error) {
 	cloneDir := w.cloneDir(p.BaseRepo, p, workspace)
+	//defer func() { w.CheckForUpstreamChanges = false }()
+	//defer func() { w.ForceClone = false }()
+	//
+	//c := wrappedGitContext{cloneDir, headRepo, p}
+	//
+	//// If the directory already exists, check if it's at the right commit.
+	//// If so, then we do nothing.
+	//if _, err := os.Stat(cloneDir); err == nil && !w.ForceClone {
+	//	logger.Debug("clone directory '%s' already exists, checking if it's at the right commit", cloneDir)
+	//
+	//	// We use git rev-parse to see if our repo is at the right commit.
+	//	// If just checking out the pull request branch, we can use HEAD.
+	//	// If doing a merge, then HEAD won't be at the pull request's HEAD
+	//	// because we'll already have performed a merge. Instead, we'll check
+	//	// HEAD^2 since that will be the commit before our merge.
+	//	pullHead := "HEAD"
+	//	if w.CheckoutMerge {
+	//		pullHead = "HEAD^2"
+	//	}
+	//	revParseCmd := exec.Command("git", "rev-parse", pullHead) // #nosec
+	//	revParseCmd.Dir = cloneDir
+	//	outputRevParseCmd, err := revParseCmd.CombinedOutput()
+	//	if err != nil {
+	//		logger.Warn("will re-clone repo, could not determine if was at correct commit: %s: %s: %s", strings.Join(revParseCmd.Args, " "), err, string(outputRevParseCmd))
+	//		return cloneDir, false, w.forceClone(logger, c)
+	//	}
+	//	currCommit := strings.Trim(string(outputRevParseCmd), "\n")
+	//
+	//	// We're prefix matching here because BitBucket doesn't give us the full
+	//	// commit, only a 12 character prefix.
+	//	if strings.HasPrefix(currCommit, p.HeadCommit) {
+	//		if w.CheckForUpstreamChanges && w.CheckoutMerge && w.recheckDiverged(logger, p, headRepo, cloneDir) {
+	//			logger.Info("base branch has been updated, using merge strategy and will clone again")
+	//			return cloneDir, true, w.mergeAgain(logger, c)
+	//		}
+	//		logger.Debug("repo is at correct commit '%s' so will not re-clone", p.HeadCommit)
+	//		return cloneDir, false, nil
+	//	} else {
+	//		logger.Debug("repo was already cloned but is not at correct commit, wanted '%s' got '%s'", p.HeadCommit, currCommit)
+	//	}
+	//	// We'll fall through to re-clone.
+	//}
+
+	// Otherwise we clone the repo.
+	return cloneDir, false, nil //w.forceClone(logger, c)
+}
+
+func (w *FileWorkspace) CloneForce(logger logging.SimpleLogging, headRepo models.Repo, p models.PullRequest, workspace string) (string, bool, error) {
+	cloneDir := w.cloneDir(p.BaseRepo, p, workspace)
 	defer func() { w.CheckForUpstreamChanges = false }()
 
 	c := wrappedGitContext{cloneDir, headRepo, p}
+
+	// Otherwise we clone the repo.
+	return cloneDir, false, w.forceClone(logger, c)
+}
+
+func (w *FileWorkspace) CloneCheckUpstreams(logger logging.SimpleLogging, headRepo models.Repo, p models.PullRequest, workspace string) (string, bool, error) {
+	cloneDir := w.cloneDir(p.BaseRepo, p, workspace)
+	defer func() { w.CheckForUpstreamChanges = false }()
+
+	c := wrappedGitContext{cloneDir, headRepo, p}
+
 	// If the directory already exists, check if it's at the right commit.
 	// If so, then we do nothing.
 	if _, err := os.Stat(cloneDir); err == nil {
@@ -126,7 +191,7 @@ func (w *FileWorkspace) Clone(logger logging.SimpleLogging, headRepo models.Repo
 		// We're prefix matching here because BitBucket doesn't give us the full
 		// commit, only a 12 character prefix.
 		if strings.HasPrefix(currCommit, p.HeadCommit) {
-			if w.CheckForUpstreamChanges && w.CheckoutMerge && w.recheckDiverged(logger, p, headRepo, cloneDir) {
+			if w.CheckoutMerge && w.recheckDiverged(logger, p, headRepo, cloneDir) {
 				logger.Info("base branch has been updated, using merge strategy and will clone again")
 				return cloneDir, true, w.mergeAgain(logger, c)
 			}
@@ -415,6 +480,10 @@ func (w *FileWorkspace) sanitizeGitCredentials(s string, base models.Repo, head 
 // Set the flag that indicates we need to check for upstream changes (if using merge checkout strategy)
 func (w *FileWorkspace) SetCheckForUpstreamChanges() {
 	w.CheckForUpstreamChanges = true
+}
+
+func (w *FileWorkspace) SetForceClone() {
+	w.ForceClone = true
 }
 
 func (w *FileWorkspace) DeletePlan(logger logging.SimpleLogging, r models.Repo, p models.PullRequest, workspace string, projectPath string, projectName string) error {
