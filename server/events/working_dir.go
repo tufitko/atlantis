@@ -55,6 +55,7 @@ type WorkingDir interface {
 	// the upstream branch has been modified. This is only safe after grabbing the project lock
 	// and before running any plans
 	SetCheckForUpstreamChanges()
+	SetForceClone()
 	// DeletePlan deletes the plan for this repo, pull, workspace path and project name
 	DeletePlan(logger logging.SimpleLogging, r models.Repo, p models.PullRequest, workspace string, path string, projectName string) error
 	// GetGitUntrackedFiles returns a list of Git untracked files in the working dir.
@@ -87,6 +88,7 @@ type FileWorkspace struct {
 	GpgNoSigningEnabled bool
 	// flag indicating if we have to merge with potential new changes upstream (directly after grabbing project lock)
 	CheckForUpstreamChanges bool
+	ForceClone              bool
 }
 
 // Clone git clones headRepo, checks out the branch and then returns the absolute
@@ -98,8 +100,14 @@ type FileWorkspace struct {
 func (w *FileWorkspace) Clone(logger logging.SimpleLogging, headRepo models.Repo, p models.PullRequest, workspace string) (string, bool, error) {
 	cloneDir := w.cloneDir(p.BaseRepo, p, workspace)
 	defer func() { w.CheckForUpstreamChanges = false }()
+	defer func() { w.ForceClone = false }()
 
 	c := wrappedGitContext{cloneDir, headRepo, p}
+
+	if w.ForceClone {
+		return cloneDir, false, w.forceClone(logger, c)
+	}
+
 	// If the directory already exists, check if it's at the right commit.
 	// If so, then we do nothing.
 	if _, err := os.Stat(cloneDir); err == nil {
@@ -415,6 +423,10 @@ func (w *FileWorkspace) sanitizeGitCredentials(s string, base models.Repo, head 
 // Set the flag that indicates we need to check for upstream changes (if using merge checkout strategy)
 func (w *FileWorkspace) SetCheckForUpstreamChanges() {
 	w.CheckForUpstreamChanges = true
+}
+
+func (w *FileWorkspace) SetForceClone() {
+	w.ForceClone = true
 }
 
 func (w *FileWorkspace) DeletePlan(logger logging.SimpleLogging, r models.Repo, p models.PullRequest, workspace string, projectPath string, projectName string) error {
