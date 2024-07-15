@@ -38,3 +38,41 @@ func (g *GithubAppWorkingDir) Clone(logger logging.SimpleLogging, headRepo model
 
 	return g.WorkingDir.Clone(logger, headRepo, p, workspace)
 }
+
+func (g *GithubAppWorkingDir) CloneForce(logger logging.SimpleLogging, headRepo models.Repo, p models.PullRequest, workspace string) (string, bool, error) {
+	baseRepo := &p.BaseRepo
+
+	// Realistically, this is a super brittle way of supporting clones using gh app installation tokens
+	// This URL should be built during Repo creation and the struct should be immutable going forward.
+	// Doing this requires a larger refactor however, and can probably be coupled with supporting > 1 installation
+
+	// This removes the credential part from the url and leaves us with the raw http url
+	// git will then pick up credentials from the credential store which is set in vcs.WriteGitCreds.
+	// Git credentials will then be rotated by vcs.GitCredsTokenRotator
+	replacement := "://"
+	baseRepo.CloneURL = strings.Replace(baseRepo.CloneURL, "://:@", replacement, 1)
+	baseRepo.SanitizedCloneURL = strings.Replace(baseRepo.SanitizedCloneURL, redactedReplacement, replacement, 1)
+	headRepo.CloneURL = strings.Replace(headRepo.CloneURL, "://:@", replacement, 1)
+	headRepo.SanitizedCloneURL = strings.Replace(baseRepo.SanitizedCloneURL, redactedReplacement, replacement, 1)
+
+	return g.WorkingDir.CloneForce(logger, headRepo, p, workspace)
+}
+
+func (g *GithubAppWorkingDir) CloneCheckUpstreams(logger logging.SimpleLogging, headRepo models.Repo, p models.PullRequest, workspace string) (string, bool, error) {
+	baseRepo := &p.BaseRepo
+
+	// Realistically, this is a super brittle way of supporting clones using gh app installation tokens
+	// This URL should be built during Repo creation and the struct should be immutable going forward.
+	// Doing this requires a larger refactor however, and can probably be coupled with supporting > 1 installation
+
+	// This removes the credential part from the url and leaves us with the raw http url
+	// git will then pick up credentials from the credential store which is set in vcs.WriteGitCreds.
+	// Git credentials will then be rotated by vcs.GitCredsTokenRotator
+	replacement := "://"
+	baseRepo.CloneURL = strings.Replace(baseRepo.CloneURL, "://:@", replacement, 1)
+	baseRepo.SanitizedCloneURL = strings.Replace(baseRepo.SanitizedCloneURL, redactedReplacement, replacement, 1)
+	headRepo.CloneURL = strings.Replace(headRepo.CloneURL, "://:@", replacement, 1)
+	headRepo.SanitizedCloneURL = strings.Replace(baseRepo.SanitizedCloneURL, redactedReplacement, replacement, 1)
+
+	return g.WorkingDir.CloneCheckUpstreams(logger, headRepo, p, workspace)
+}
