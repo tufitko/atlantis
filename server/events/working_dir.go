@@ -108,7 +108,7 @@ func (w *FileWorkspace) CloneForce(logger logging.SimpleLogging, headRepo models
 	c := wrappedGitContext{cloneDir, headRepo, p}
 
 	if _, err := os.Stat(cloneDir); err == nil {
-		return cloneDir, false, w.mergeAgain(logger, c)
+		return cloneDir, w.mergeAgain(logger, c)
 	}
 
 	// Otherwise we clone the repo.
