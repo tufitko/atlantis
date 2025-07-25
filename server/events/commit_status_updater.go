@@ -87,6 +87,12 @@ func (d *DefaultCommitStatusUpdater) UpdateProject(ctx command.ProjectContext, c
 	if projectID == "" {
 		projectID = fmt.Sprintf("%s/%s", ctx.RepoRelDir, ctx.Workspace)
 	}
+
+	// do nothing if the status is not FailedCommitStatus
+	if status != models.FailedCommitStatus {
+		return nil
+	}
+
 	src := fmt.Sprintf("%s/%s: %s", d.StatusName, cmdName.String(), projectID)
 	var descripWords string
 	switch status {
