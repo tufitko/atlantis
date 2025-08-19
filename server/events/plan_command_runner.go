@@ -2,7 +2,6 @@ package events
 
 import (
 	"github.com/pkg/errors"
-	"strconv"
 
 	"github.com/runatlantis/atlantis/server/core/config/valid"
 	"github.com/runatlantis/atlantis/server/core/locking"
@@ -289,6 +288,10 @@ func (p *PlanCommandRunner) run(ctx *command.Context, cmd *CommentCommand) {
 	if !cmd.IsForSpecificProject() {
 		ctx.Log.Debug("deleting previous plans and locks")
 		p.deletePlans(ctx)
+		_, err = p.lockingLocker.UnlockByPull(baseRepo.FullName, pull.Num)
+		if err != nil {
+			ctx.Log.Err("deleting locks: %s", err)
+		}
 	}
 
 	var projectResults []command.ProjectResult
@@ -321,44 +324,13 @@ func (p *PlanCommandRunner) run(ctx *command.Context, cmd *CommentCommand) {
 	}
 
 	var result command.Result
-
-	if len(projectResults) > 0 {
-		result = command.Result{
-			ProjectResults: projectResults,
-		}
-
-		_, err = p.lockingLocker.UnlockByPull(baseRepo.FullName, pull.Num)
-		if err != nil {
-			ctx.Log.Err("deleting locks: %s", err)
-		}
+	if p.isParallelEnabled(projectCmds) {
+		ctx.Log.Info("Running plans in parallel")
+		result = runProjectCmdsParallelGroups(ctx, projectCmds, p.prjCmdRunner.Plan, p.parallelPoolSize)
 	} else {
-		// Only run commands in parallel if enabled
-		if p.isParallelEnabled(projectCmds) {
-			ctx.Log.Info("Running plans in parallel")
-			result = runProjectCmdsParallelGroups(ctx, projectCmds, p.prjCmdRunner.Plan, p.parallelPoolSize)
-		} else {
-			result = runProjectCmds(projectCmds, p.prjCmdRunner.Plan)
-		}
+		result = runProjectCmds(projectCmds, p.prjCmdRunner.Plan)
 	}
 	ctx.CommandHasErrors = result.HasErrors()
-
-	for i, projResult := range result.ProjectResults {
-		projCtx := projectCmds[i]
-
-		if projResult.PlanStatus() == models.PlannedNoChangesPlanStatus || projResult.PlanStatus() == models.ErroredPlanStatus {
-			ctx.Log.Info("Keeping lock for project '%s' (no changes or error)", projCtx.ProjectName)
-			continue
-		}
-
-		// delete lock only if there are changes
-		ctx.Log.Info("Deleting lock for project '%s' (changes detected)", projCtx.ProjectName)
-		lockID := projCtx.BaseRepo.FullName + "/" + strconv.Itoa(projCtx.Pull.Num) + "/" + projCtx.ProjectName + "/" + projCtx.Workspace
-
-		_, err := p.lockingLocker.Unlock(lockID)
-		if err != nil {
-			ctx.Log.Err("failed unlocking project '%s': %s", projCtx.ProjectName, err)
-		}
-	}
 
 	if p.autoMerger.automergeEnabled(projectCmds) && result.HasErrors() {
 		ctx.Log.Info("deleting plans because there were errors and automerge requires all plans succeed")
