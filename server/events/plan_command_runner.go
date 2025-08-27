@@ -3,12 +3,13 @@ package events
 import (
 	"github.com/pkg/errors"
 
+	"sync"
+
 	"github.com/runatlantis/atlantis/server/core/config/valid"
 	"github.com/runatlantis/atlantis/server/core/locking"
 	"github.com/runatlantis/atlantis/server/events/command"
 	"github.com/runatlantis/atlantis/server/events/models"
 	"github.com/runatlantis/atlantis/server/events/vcs"
-	"sync"
 )
 
 func NewPlanCommandRunner(
@@ -324,11 +325,23 @@ func (p *PlanCommandRunner) run(ctx *command.Context, cmd *CommentCommand) {
 	}
 
 	var result command.Result
-	if p.isParallelEnabled(projectCmds) {
-		ctx.Log.Info("Running plans in parallel")
-		result = runProjectCmdsParallelGroups(ctx, projectCmds, p.prjCmdRunner.Plan, p.parallelPoolSize)
+
+	if len(projectResults) > 0 {
+		result = command.Result{
+			ProjectResults: projectResults,
+		}
+
+		_, err = p.lockingLocker.UnlockByPull(baseRepo.FullName, pull.Num)
+		if err != nil {
+			ctx.Log.Err("deleting locks: %s", err)
+		}
 	} else {
-		result = runProjectCmds(projectCmds, p.prjCmdRunner.Plan)
+		if p.isParallelEnabled(projectCmds) {
+			ctx.Log.Info("Running plans in parallel")
+			result = runProjectCmdsParallelGroups(ctx, projectCmds, p.prjCmdRunner.Plan, p.parallelPoolSize)
+		} else {
+			result = runProjectCmds(projectCmds, p.prjCmdRunner.Plan)
+		}
 	}
 	ctx.CommandHasErrors = result.HasErrors()
 
