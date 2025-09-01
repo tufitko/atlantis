@@ -67,7 +67,8 @@ func (c ConftestTestCommandArgs) build() ([]string, error) {
 	}
 
 	// add hardcoded options
-	commandArgs = append(commandArgs, c.InputFile, "--no-color")
+	// commandArgs = append(commandArgs, c.InputFile, "--no-color")
+	commandArgs = append(commandArgs, "--no-color")
 
 	// add extra args provided through server config
 	commandArgs = append(commandArgs, c.ExtraArgs...)
