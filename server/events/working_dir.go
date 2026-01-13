@@ -43,6 +43,8 @@ type WorkingDir interface {
 	// Clone git clones headRepo, checks out the branch and then returns the
 	// absolute path to the root of the cloned repo.
 	Clone(logger logging.SimpleLogging, headRepo models.Repo, p models.PullRequest, workspace string) (string, error)
+	CloneForce(logger logging.SimpleLogging, headRepo models.Repo, p models.PullRequest, workspace string) (string, error)
+	CloneCheckUpstreams(logger logging.SimpleLogging, headRepo models.Repo, p models.PullRequest, workspace string) (string, error)
 	// MergeAgain merges again with upstream if upstream has been modified, returns
 	// whether it actually did a new merge
 	MergeAgain(logger logging.SimpleLogging, headRepo models.Repo, p models.PullRequest, workspace string) (bool, error)
@@ -86,6 +88,8 @@ type FileWorkspace struct {
 	GpgNoSigningEnabled bool
 	// flag indicating if we have to merge with potential new changes upstream (directly after grabbing project lock)
 	CheckForUpstreamChanges bool
+	ForceClone              bool
+	Logger                  logging.SimpleLogging
 }
 
 // Clone git clones headRepo, checks out the branch and then returns the absolute
@@ -95,15 +99,29 @@ type FileWorkspace struct {
 // multiple dirs of the same repo without deleting existing plans.
 func (w *FileWorkspace) Clone(logger logging.SimpleLogging, headRepo models.Repo, p models.PullRequest, workspace string) (string, error) {
 	cloneDir := w.cloneDir(p.BaseRepo, p, workspace)
+	return cloneDir, nil
+}
 
-	// Unconditionally wait for the clone lock here, if anyone else is doing any clone
-	// operation in this directory, we wait for it to finish before we check anything.
-	value, _ := cloneLocks.LoadOrStore(cloneDir, new(sync.Mutex))
-	mutex := value.(*sync.Mutex)
-	mutex.Lock()
-	defer mutex.Unlock()
+func (w *FileWorkspace) CloneForce(logger logging.SimpleLogging, headRepo models.Repo, p models.PullRequest, workspace string) (string, error) {
+	cloneDir := w.cloneDir(p.BaseRepo, p, workspace)
+	defer func() { w.CheckForUpstreamChanges = false }()
 
 	c := wrappedGitContext{cloneDir, headRepo, p}
+
+	if _, err := os.Stat(cloneDir); err == nil {
+		return cloneDir, w.mergeAgain(logger, c)
+	}
+
+	// Otherwise we clone the repo.
+	return cloneDir, w.forceClone(logger, c)
+}
+
+func (w *FileWorkspace) CloneCheckUpstreams(logger logging.SimpleLogging, headRepo models.Repo, p models.PullRequest, workspace string) (string, error) {
+	cloneDir := w.cloneDir(p.BaseRepo, p, workspace)
+	defer func() { w.CheckForUpstreamChanges = false }()
+
+	c := wrappedGitContext{cloneDir, headRepo, p}
+
 	// If the directory already exists, check if it's at the right commit.
 	// If so, then we do nothing.
 	if _, err := os.Stat(cloneDir); err == nil {
