@@ -44,6 +44,7 @@ type WorkingDir interface {
 	// Clone git clones headRepo, checks out the branch and then returns the
 	// absolute path to the root of the cloned repo.
 	Clone(logger logging.SimpleLogging, headRepo models.Repo, p models.PullRequest, workspace string) (string, error)
+	CloneFull(logger logging.SimpleLogging, headRepo models.Repo, p models.PullRequest, workspace string) (string, error)
 	// MergeAgain merges again with upstream if upstream has been modified, returns
 	// whether it actually did a new merge
 	MergeAgain(logger logging.SimpleLogging, headRepo models.Repo, p models.PullRequest, workspace string) (bool, error)
@@ -98,6 +99,11 @@ type FileWorkspace struct {
 // multiple dirs of the same repo without deleting existing plans.
 func (w *FileWorkspace) Clone(logger logging.SimpleLogging, headRepo models.Repo, p models.PullRequest, workspace string) (string, error) {
 	cloneDir := w.cloneDir(p.BaseRepo, p, workspace)
+	return cloneDir, nil
+}
+
+func (w *FileWorkspace) CloneFull(logger logging.SimpleLogging, headRepo models.Repo, p models.PullRequest, workspace string) (string, error) {
+	cloneDir := w.cloneDir(p.BaseRepo, p, workspace)
 
 	// Unconditionally wait for the clone lock here, if anyone else is doing any clone
 	// operation in this directory, we wait for it to finish before we check anything.
@@ -134,6 +140,22 @@ func (w *FileWorkspace) attemptReuseCloneDir(logger logging.SimpleLogging, c wra
 		return false, err
 	}
 	if isUpToDate {
+		if w.CheckoutMerge {
+			// For merge strategy, even though the head commit hasn't changed,
+			// the base branch may have new commits or the PR's target branch
+			// may have changed. Fetch and check if we need to re-merge.
+			baseDiverged, bErr := w.hasBaseBranchDiverged(logger, c)
+			if bErr != nil {
+				return false, bErr
+			}
+			if baseDiverged {
+				logger.Info("head commit %q is up to date but base branch %q has diverged, re-merging", c.pr.HeadCommit, c.pr.BaseBranch)
+				if err := w.updateToRef(logger, c, c.pr.HeadCommit); err != nil {
+					return false, err
+				}
+				return true, nil
+			}
+		}
 		logger.Info("repo is at correct commit %q so will not re-clone", c.pr.HeadCommit)
 		return true, nil
 	}
@@ -278,6 +300,45 @@ func (w *FileWorkspace) hasDiverged(logger logging.SimpleLogging, cloneDir strin
 		return true
 	}
 	return strings.Contains(string(outputStatusUno), "have diverged")
+}
+
+// hasBaseBranchDiverged checks whether the base branch has new commits since the
+// last merge, or if the PR's target branch has changed. It fetches from origin
+// to get the latest state and compares the first parent of the current merge
+// commit (HEAD^1) with the current tip of origin/<BaseBranch>.
+func (w *FileWorkspace) hasBaseBranchDiverged(logger logging.SimpleLogging, c wrappedGitContext) (bool, error) {
+	if err := w.wrappedGit(logger, c, "fetch", "origin"); err != nil {
+		return false, err
+	}
+
+	// HEAD^1 is the base branch commit that was used in the last merge.
+	mergedBaseCmd := exec.Command("git", "rev-parse", "HEAD^1") // #nosec
+	mergedBaseCmd.Dir = c.dir
+	mergedBaseOutput, err := mergedBaseCmd.CombinedOutput()
+	if err != nil {
+		return false, fmt.Errorf("rev-parse HEAD^1: %s: %s", strings.TrimSpace(string(mergedBaseOutput)), err)
+	}
+	mergedBase := strings.TrimSpace(string(mergedBaseOutput))
+
+	// Get the current tip of the base branch on origin.
+	currentBaseRef := fmt.Sprintf("origin/%s", c.pr.BaseBranch)
+	currentBaseCmd := exec.Command("git", "rev-parse", currentBaseRef) // #nosec
+	currentBaseCmd.Dir = c.dir
+	currentBaseOutput, err := currentBaseCmd.CombinedOutput()
+	if err != nil {
+		// Can't resolve origin/<BaseBranch> — the target branch may have changed
+		// to one that doesn't exist on this remote.
+		logger.Info("cannot resolve %s after fetch, base branch may have changed: %s", currentBaseRef, strings.TrimSpace(string(currentBaseOutput)))
+		return true, nil
+	}
+	currentBase := strings.TrimSpace(string(currentBaseOutput))
+
+	if mergedBase != currentBase {
+		logger.Info("base branch diverged: merged base was %s, origin/%s is now %s", mergedBase, c.pr.BaseBranch, currentBase)
+		return true, nil
+	}
+
+	return false, nil
 }
 
 func (w *FileWorkspace) remoteHasBranch(logger logging.SimpleLogging, c wrappedGitContext, branch string) bool {

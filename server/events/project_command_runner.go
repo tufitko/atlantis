@@ -617,13 +617,6 @@ func (p *DefaultProjectCommandRunner) doPlan(ctx command.ProjectContext) (*model
 		}
 		return nil, "", err
 	}
-	mergedAgain, err := p.WorkingDir.MergeAgain(ctx.Log, ctx.HeadRepo, ctx.Pull, ctx.Workspace)
-	if err != nil {
-		if unlockErr := lockAttempt.UnlockFn(); unlockErr != nil {
-			ctx.Log.Err("error unlocking state after plan error: %v", unlockErr)
-		}
-		return nil, "", err
-	}
 
 	projAbsPath := filepath.Join(repoDir, ctx.RepoRelDir)
 	if _, err = os.Stat(projAbsPath); os.IsNotExist(err) {
@@ -649,7 +642,7 @@ func (p *DefaultProjectCommandRunner) doPlan(ctx command.ProjectContext) (*model
 		TerraformOutput: strings.Join(outputs, "\n"),
 		RePlanCmd:       ctx.RePlanCmd,
 		ApplyCmd:        ctx.ApplyCmd,
-		MergedAgain:     mergedAgain,
+		MergedAgain:     false,
 	}, "", nil
 }
 
