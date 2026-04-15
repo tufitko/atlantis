@@ -50,7 +50,7 @@ func TestClone_NoneExisting(t *testing.T) {
 		GpgNoSigningEnabled:         true,
 	}
 
-	cloneDir, err := wd.Clone(logger, models.Repo{}, models.PullRequest{
+	cloneDir, err := wd.CloneFull(logger, models.Repo{}, models.PullRequest{
 		BaseRepo:   models.Repo{},
 		HeadBranch: "branch",
 	}, "default")
@@ -80,7 +80,7 @@ func TestClone_MainBranchWithMergeStrategy(t *testing.T) {
 		GpgNoSigningEnabled:         true,
 	}
 
-	_, err := wd.Clone(logger, models.Repo{}, models.PullRequest{
+	_, err := wd.CloneFull(logger, models.Repo{}, models.PullRequest{
 		Num:        0,
 		BaseRepo:   models.Repo{},
 		HeadBranch: "branch",
@@ -92,7 +92,7 @@ func TestClone_MainBranchWithMergeStrategy(t *testing.T) {
 	runCmd(t, dataDir, "touch", "repos/0/default/proof")
 
 	// re-clone to make sure we don't try to merge main into itself
-	cloneDir, err := wd.Clone(logger, models.Repo{}, models.PullRequest{
+	cloneDir, err := wd.CloneFull(logger, models.Repo{}, models.PullRequest{
 		BaseRepo:   models.Repo{},
 		HeadBranch: "branch",
 		BaseBranch: "main",
@@ -203,7 +203,7 @@ func TestClone_SyntheticNonPRRefsCheckoutDirectly(t *testing.T) {
 				HardenedNonPRRefCheckout: true,
 			}
 
-			cloneDir, err := wd.Clone(logger, models.Repo{}, pull, "default")
+			cloneDir, err := wd.CloneFull(logger, models.Repo{}, pull, "default")
 			Ok(t, err)
 			actCommit := strings.TrimSpace(runCmd(t, cloneDir, "git", "rev-parse", "HEAD"))
 			Equals(t, tt.expectedCommit, actCommit)
@@ -258,7 +258,7 @@ func TestClone_SyntheticNonPRRefsRejectPRNamespaces(t *testing.T) {
 				HardenedNonPRRefCheckout: true,
 			}
 
-			_, err := wd.Clone(logger, models.Repo{}, pull, "default")
+			_, err := wd.CloneFull(logger, models.Repo{}, pull, "default")
 			ErrContains(t, "unsafe refs are not allowed", err)
 		})
 	}
@@ -288,7 +288,7 @@ func TestClone_LegacySyntheticNonPRBranchKeepsBranchCheckout(t *testing.T) {
 		HeadCommit: "branch",
 	}
 
-	cloneDir, err := wd.Clone(logger, models.Repo{}, pull, "default")
+	cloneDir, err := wd.CloneFull(logger, models.Repo{}, pull, "default")
 	Ok(t, err)
 	actCommit := strings.TrimSpace(runCmd(t, cloneDir, "git", "rev-parse", "HEAD"))
 	Equals(t, branchCommit, actCommit)
@@ -337,7 +337,7 @@ func TestClone_CheckoutMergeNoneExisting(t *testing.T) {
 		GpgNoSigningEnabled:         true,
 	}
 
-	cloneDir, err := wd.Clone(logger, models.Repo{}, models.PullRequest{
+	cloneDir, err := wd.CloneFull(logger, models.Repo{}, models.PullRequest{
 		BaseRepo:   models.Repo{},
 		HeadBranch: "branch",
 		BaseBranch: "main",
@@ -394,7 +394,7 @@ func TestClone_CheckoutMergeGithubAppNoSourceRemote(t *testing.T) {
 		GithubAppEnabled:            true,
 	}
 
-	cloneDir, err := wd.Clone(logger, models.Repo{}, models.PullRequest{
+	cloneDir, err := wd.CloneFull(logger, models.Repo{}, models.PullRequest{
 		BaseRepo:   models.Repo{},
 		HeadBranch: "branch",
 		BaseBranch: "main",
@@ -447,7 +447,7 @@ func TestClone_CheckoutMergeGithubAppNonGithubUsesSourceRemote(t *testing.T) {
 		GithubAppEnabled:            true,
 	}
 
-	cloneDir, err := wd.Clone(logger, models.Repo{
+	cloneDir, err := wd.CloneFull(logger, models.Repo{
 		VCSHost: models.VCSHost{Type: models.Gitlab},
 	}, models.PullRequest{
 		BaseRepo:   models.Repo{},
@@ -501,7 +501,7 @@ func TestClone_CheckoutMergeNoReclone(t *testing.T) {
 		GpgNoSigningEnabled:         true,
 	}
 
-	_, err := wd.Clone(logger, models.Repo{}, models.PullRequest{
+	_, err := wd.CloneFull(logger, models.Repo{}, models.PullRequest{
 		BaseRepo:   models.Repo{},
 		HeadBranch: "branch",
 		BaseBranch: "main",
@@ -512,7 +512,7 @@ func TestClone_CheckoutMergeNoReclone(t *testing.T) {
 	runCmd(t, dataDir, "touch", "repos/0/default/proof")
 
 	// Now run the clone again.
-	cloneDir, err := wd.Clone(logger, models.Repo{}, models.PullRequest{
+	cloneDir, err := wd.CloneFull(logger, models.Repo{}, models.PullRequest{
 		BaseRepo:   models.Repo{},
 		HeadBranch: "branch",
 		BaseBranch: "main",
@@ -551,7 +551,7 @@ func TestClone_CheckoutMergeNoRecloneFastForward(t *testing.T) {
 		GpgNoSigningEnabled:         true,
 	}
 
-	_, err := wd.Clone(logger, models.Repo{}, models.PullRequest{
+	_, err := wd.CloneFull(logger, models.Repo{}, models.PullRequest{
 		BaseRepo:   models.Repo{},
 		HeadBranch: "branch",
 		BaseBranch: "main",
@@ -562,7 +562,7 @@ func TestClone_CheckoutMergeNoRecloneFastForward(t *testing.T) {
 	runCmd(t, dataDir, "touch", "repos/0/default/proof")
 
 	// Now run the clone again.
-	cloneDir, err := wd.Clone(logger, models.Repo{}, models.PullRequest{
+	cloneDir, err := wd.CloneFull(logger, models.Repo{}, models.PullRequest{
 		BaseRepo:   models.Repo{},
 		HeadBranch: "branch",
 		BaseBranch: "main",
@@ -570,6 +570,67 @@ func TestClone_CheckoutMergeNoRecloneFastForward(t *testing.T) {
 	Ok(t, err)
 
 	// Check that our proof file is still there, proving that we didn't reclone.
+	_, err = os.Stat(filepath.Join(cloneDir, "proof"))
+	Ok(t, err)
+}
+
+// Test that with the merge strategy, when the head commit hasn't changed but
+// the base branch has advanced since the last merge, CloneFull re-merges with
+// the new base instead of returning the stale checkout.
+func TestClone_CheckoutMergeRemergesOnBaseAdvance(t *testing.T) {
+	// Initialize the git repo.
+	repoDir := initRepo(t)
+
+	// Add a commit to branch 'branch' that's not on main.
+	runCmd(t, repoDir, "git", "checkout", "branch")
+	runCmd(t, repoDir, "touch", "branch-file")
+	runCmd(t, repoDir, "git", "add", "branch-file")
+	runCmd(t, repoDir, "git", "commit", "-m", "branch-commit")
+	headCommit := strings.TrimSpace(runCmd(t, repoDir, "git", "rev-parse", "HEAD"))
+	runCmd(t, repoDir, "git", "checkout", "main")
+
+	logger := logging.NewNoopLogger(t)
+
+	dataDir := t.TempDir()
+	overrideURL := fmt.Sprintf("file://%s", repoDir)
+	wd := &events.FileWorkspace{
+		DataDir:                     dataDir,
+		CheckoutMerge:               true,
+		CheckoutDepth:               50,
+		TestingOverrideHeadCloneURL: overrideURL,
+		TestingOverrideBaseCloneURL: overrideURL,
+		GpgNoSigningEnabled:         true,
+	}
+	pull := models.PullRequest{
+		BaseRepo:   models.Repo{},
+		Num:        1,
+		HeadBranch: "branch",
+		BaseBranch: "main",
+		HeadCommit: headCommit,
+	}
+
+	cloneDir, err := wd.CloneFull(logger, models.Repo{}, pull, "default")
+	Ok(t, err)
+
+	// Create a file that we can use to check that we re-merged in place
+	// instead of wiping the directory with a full re-clone.
+	runCmd(t, cloneDir, "touch", "proof")
+
+	// Advance main by another commit after the merge happened.
+	runCmd(t, repoDir, "touch", "main-file")
+	runCmd(t, repoDir, "git", "add", "main-file")
+	runCmd(t, repoDir, "git", "commit", "-m", "main-commit")
+
+	cloneDir, err = wd.CloneFull(logger, models.Repo{}, pull, "default")
+	Ok(t, err)
+
+	// The new base commit must have been merged in.
+	_, err = os.Stat(filepath.Join(cloneDir, "main-file"))
+	Ok(t, err)
+	// The PR's own change is still present.
+	_, err = os.Stat(filepath.Join(cloneDir, "branch-file"))
+	Ok(t, err)
+	// And the proof file survived, so this was a re-merge, not a re-clone.
 	_, err = os.Stat(filepath.Join(cloneDir, "proof"))
 	Ok(t, err)
 }
@@ -606,7 +667,7 @@ func TestClone_CheckoutMergeConflict(t *testing.T) {
 		GpgNoSigningEnabled:         true,
 	}
 
-	_, err := wd.Clone(logger, models.Repo{}, models.PullRequest{
+	_, err := wd.CloneFull(logger, models.Repo{}, models.PullRequest{
 		BaseRepo:   models.Repo{},
 		HeadBranch: "branch",
 		BaseBranch: "main",
@@ -665,7 +726,7 @@ func TestClone_CheckoutMergeShallow(t *testing.T) {
 			GpgNoSigningEnabled:         true,
 		}
 
-		cloneDir, err := wd.Clone(logger, models.Repo{}, models.PullRequest{
+		cloneDir, err := wd.CloneFull(logger, models.Repo{}, models.PullRequest{
 			BaseRepo:   models.Repo{},
 			HeadBranch: "branch",
 			BaseBranch: "main",
@@ -694,7 +755,7 @@ func TestClone_CheckoutMergeShallow(t *testing.T) {
 			GpgNoSigningEnabled:         true,
 		}
 
-		cloneDir, err := wd.Clone(logger, models.Repo{}, models.PullRequest{
+		cloneDir, err := wd.CloneFull(logger, models.Repo{}, models.PullRequest{
 			BaseRepo:   models.Repo{},
 			HeadBranch: "branch",
 			BaseBranch: "main",
@@ -728,7 +789,7 @@ func TestClone_NoReclone(t *testing.T) {
 		TestingOverrideHeadCloneURL: fmt.Sprintf("file://%s", repoDir),
 		GpgNoSigningEnabled:         true,
 	}
-	cloneDir, err := wd.Clone(logger, models.Repo{}, models.PullRequest{
+	cloneDir, err := wd.CloneFull(logger, models.Repo{}, models.PullRequest{
 		BaseRepo:   models.Repo{},
 		HeadBranch: "branch",
 	}, "default")
@@ -778,7 +839,7 @@ func TestClone_ResetOnWrongCommit(t *testing.T) {
 		TestingOverrideHeadCloneURL: fmt.Sprintf("file://%s", repoDir),
 		GpgNoSigningEnabled:         true,
 	}
-	cloneDir, err := wd.Clone(logger, models.Repo{}, models.PullRequest{
+	cloneDir, err := wd.CloneFull(logger, models.Repo{}, models.PullRequest{
 		BaseRepo:   models.Repo{},
 		HeadBranch: "branch",
 		HeadCommit: expCommit,
@@ -826,7 +887,7 @@ func TestClone_DoNotReCloneOnBaseChangeForBranchStrategy(t *testing.T) {
 		TestingOverrideHeadCloneURL: fmt.Sprintf("file://%s", repoDir),
 		GpgNoSigningEnabled:         true,
 	}
-	cloneDir, err := wd.Clone(logger, models.Repo{}, models.PullRequest{
+	cloneDir, err := wd.CloneFull(logger, models.Repo{}, models.PullRequest{
 		BaseRepo:   models.Repo{},
 		HeadBranch: "branch",
 		HeadCommit: expCommit,
@@ -880,7 +941,7 @@ func TestClone_ReCloneOnBaseChangeForMergeStrategy(t *testing.T) {
 		TestingOverrideBaseCloneURL: fmt.Sprintf("file://%s", remoteRepoDir),
 		GpgNoSigningEnabled:         true,
 	}
-	cloneDir, err := wd.Clone(logger, models.Repo{}, models.PullRequest{
+	cloneDir, err := wd.CloneFull(logger, models.Repo{}, models.PullRequest{
 		BaseRepo:   models.Repo{},
 		HeadBranch: "branch",
 		HeadCommit: expCommit,
@@ -928,7 +989,7 @@ func TestClone_ReCloneOnErrorAttemptingReuse(t *testing.T) {
 		TestingOverrideHeadCloneURL: fmt.Sprintf("file://%s", repoDir),
 		GpgNoSigningEnabled:         true,
 	}
-	cloneDir, err := wd.Clone(logger, models.Repo{}, models.PullRequest{
+	cloneDir, err := wd.CloneFull(logger, models.Repo{}, models.PullRequest{
 		BaseRepo:   models.Repo{},
 		HeadBranch: "branch",
 		HeadCommit: expCommit,
@@ -1004,7 +1065,7 @@ func TestClone_ResetOnWrongCommitWithMergeStrategy(t *testing.T) {
 		GpgNoSigningEnabled:         true,
 	}
 	fmt.Println(repoDir)
-	cloneDir, err := wd.Clone(logger, models.Repo{}, models.PullRequest{
+	cloneDir, err := wd.CloneFull(logger, models.Repo{}, models.PullRequest{
 		BaseRepo:   models.Repo{},
 		HeadBranch: "branch",
 		HeadCommit: expCommit,
@@ -1089,7 +1150,7 @@ func TestClone_MasterHasDiverged(t *testing.T) {
 
 	// Run MergeAgain without the checkout merge strategy. It should return
 	// false for mergedAgain
-	_, err := wd.Clone(logger, models.Repo{}, models.PullRequest{
+	_, err := wd.CloneFull(logger, models.Repo{}, models.PullRequest{
 		BaseRepo:   models.Repo{},
 		HeadBranch: "second-pr",
 		BaseBranch: "main",
@@ -2516,7 +2577,7 @@ func TestClone_ForceCloneDeletesSeparatePlanWorkspaceWhenReplacingCheckout(t *te
 		GpgNoSigningEnabled:         true,
 	}
 
-	cloneDir, err := fileWorkspace.Clone(logger, repo, pull, "default")
+	cloneDir, err := fileWorkspace.CloneFull(logger, repo, pull, "default")
 	Ok(t, err)
 	assertPathExists(t, cloneDir)
 	assertPathMissing(t, stalePlanFile)
@@ -2548,7 +2609,7 @@ func TestClone_ForceClonePreservesSeparatePlanWorkspaceWhenCheckoutMissing(t *te
 		GpgNoSigningEnabled:         true,
 	}
 
-	cloneDir, err := fileWorkspace.Clone(logger, repo, pull, "default")
+	cloneDir, err := fileWorkspace.CloneFull(logger, repo, pull, "default")
 	Ok(t, err)
 	assertPathExists(t, cloneDir)
 	assertPathExists(t, planFile)
@@ -2593,7 +2654,7 @@ func TestClone_UpdateDeletesSeparatePlanStoreStalePlans(t *testing.T) {
 		GpgNoSigningEnabled:         true,
 	}
 
-	updatedCloneDir, err := fileWorkspace.Clone(logger, repo, pull, "default")
+	updatedCloneDir, err := fileWorkspace.CloneFull(logger, repo, pull, "default")
 	Ok(t, err)
 	Equals(t, cloneDir, updatedCloneDir)
 	Equals(t, pull.HeadCommit, strings.TrimSpace(runCmd(t, cloneDir, "git", "rev-parse", "HEAD")))
@@ -2650,7 +2711,7 @@ func TestFileWorkspace_PathTraversal(t *testing.T) {
 	})
 
 	t.Run("Clone rejects traversal in repo name", func(t *testing.T) {
-		_, err := wd.Clone(logger, maliciousRepo, pull, "default")
+		_, err := wd.CloneFull(logger, maliciousRepo, pull, "default")
 		Assert(t, err != nil, "expected error for path traversal in repo name")
 		Assert(t, strings.Contains(err.Error(), "traversal"), "expected traversal error, got: %s", err)
 	})

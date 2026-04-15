@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sync"
 
 	"github.com/runatlantis/atlantis/server/core/config/valid"
 	"github.com/runatlantis/atlantis/server/core/locking"
@@ -49,6 +50,7 @@ func NewPlanCommandRunner(
 	discardApprovalOnPlan bool,
 	pullReqStatusFetcher vcs.PullReqStatusFetcher,
 	PendingApplyStatus bool,
+	projectLocker ProjectLocker,
 
 ) *PlanCommandRunner {
 	return &PlanCommandRunner{
@@ -73,6 +75,7 @@ func NewPlanCommandRunner(
 		DiscardApprovalOnPlan:      discardApprovalOnPlan,
 		pullReqStatusFetcher:       pullReqStatusFetcher,
 		PendingApplyStatus:         PendingApplyStatus,
+		projectLocker:              projectLocker,
 	}
 }
 
@@ -107,6 +110,9 @@ type PlanCommandRunner struct {
 	pullReqStatusFetcher  vcs.PullReqStatusFetcher
 	SilencePRComments     []string
 	PendingApplyStatus    bool
+
+	projectLocker ProjectLocker
+	mtx           sync.Mutex
 }
 
 func (p *PlanCommandRunner) runAutoplan(ctx *command.Context) {
@@ -177,7 +183,53 @@ func (p *PlanCommandRunner) runAutoplan(ctx *command.Context) {
 		return
 	}
 
-	result := runProjectCmdsWithCancellationTracker(ctx, projectCmds, p.cancellationTracker, p.parallelPoolSize, p.isParallelEnabled(projectCmds), p.prjCmdRunner.Plan)
+	var projectResults []command.ProjectResult
+	if p.projectLocker != nil {
+		p.mtx.Lock()
+		for _, pctx := range projectCmds {
+			lockResult := command.ProjectResult{
+				ProjectCommandOutput: command.ProjectCommandOutput{
+					PlanSuccess: nil,
+					Error:       nil,
+					Failure:     "",
+				},
+				Command:           pctx.CommandName,
+				SubCommand:        pctx.SubCommand,
+				RepoRelDir:        pctx.RepoRelDir,
+				Workspace:         pctx.Workspace,
+				ProjectName:       pctx.ProjectName,
+				SilencePRComments: pctx.SilencePRComments,
+			}
+
+			// Lock the project
+			lockResponse, err := p.projectLocker.TryLock(pctx.Log, pctx.Pull, pctx.User, pctx.Workspace, models.NewProject(pctx.Pull.BaseRepo.FullName, pctx.RepoRelDir, pctx.ProjectName), pctx.RepoLocksMode == valid.RepoLocksOnPlanMode)
+			if err != nil {
+				pctx.Log.Err("locking project: %s", err)
+				lockResult.Error = fmt.Errorf("acquiring lock: %w", err)
+			} else {
+				lockResult.Failure = lockResponse.LockFailureReason
+			}
+			if lockResult.Error != nil || lockResult.Failure != "" {
+				projectResults = append(projectResults, lockResult)
+			}
+		}
+		p.mtx.Unlock()
+	}
+
+	var result command.Result
+
+	if len(projectResults) > 0 {
+		result = command.Result{
+			ProjectResults: projectResults,
+		}
+
+		_, err = p.lockingLocker.UnlockByPull(baseRepo.FullName, pull.Num)
+		if err != nil {
+			ctx.Log.Err("deleting locks: %s", err)
+		}
+	} else {
+		result = runProjectCmdsWithCancellationTracker(ctx, projectCmds, p.cancellationTracker, p.parallelPoolSize, p.isParallelEnabled(projectCmds), p.prjCmdRunner.Plan)
+	}
 
 	if p.autoMerger.automergeEnabled(projectCmds) && result.HasErrors() {
 		ctx.Log.Info("deleting plans because there were errors and automerge requires all plans succeed")
@@ -323,7 +375,53 @@ func (p *PlanCommandRunner) run(ctx *command.Context, cmd *CommentCommand) {
 		}
 	}
 
-	result := runProjectCmdsWithCancellationTracker(ctx, projectCmds, p.cancellationTracker, p.parallelPoolSize, p.isParallelEnabled(projectCmds), p.prjCmdRunner.Plan)
+	var projectResults []command.ProjectResult
+	if p.projectLocker != nil {
+		p.mtx.Lock()
+		for _, pctx := range projectCmds {
+			lockResult := command.ProjectResult{
+				ProjectCommandOutput: command.ProjectCommandOutput{
+					PlanSuccess: nil,
+					Error:       nil,
+					Failure:     "",
+				},
+				Command:           pctx.CommandName,
+				SubCommand:        pctx.SubCommand,
+				RepoRelDir:        pctx.RepoRelDir,
+				Workspace:         pctx.Workspace,
+				ProjectName:       pctx.ProjectName,
+				SilencePRComments: pctx.SilencePRComments,
+			}
+
+			// Lock the project
+			lockResponse, err := p.projectLocker.TryLock(pctx.Log, pctx.Pull, pctx.User, pctx.Workspace, models.NewProject(pctx.Pull.BaseRepo.FullName, pctx.RepoRelDir, pctx.ProjectName), pctx.RepoLocksMode == valid.RepoLocksOnPlanMode)
+			if err != nil {
+				pctx.Log.Err("locking project: %s", err)
+				lockResult.Error = fmt.Errorf("acquiring lock: %w", err)
+			} else {
+				lockResult.Failure = lockResponse.LockFailureReason
+			}
+			if lockResult.Error != nil || lockResult.Failure != "" {
+				projectResults = append(projectResults, lockResult)
+			}
+		}
+		p.mtx.Unlock()
+	}
+
+	var result command.Result
+
+	if len(projectResults) > 0 {
+		result = command.Result{
+			ProjectResults: projectResults,
+		}
+
+		_, err = p.lockingLocker.UnlockByPull(baseRepo.FullName, pull.Num)
+		if err != nil {
+			ctx.Log.Err("deleting locks: %s", err)
+		}
+	} else {
+		result = runProjectCmdsWithCancellationTracker(ctx, projectCmds, p.cancellationTracker, p.parallelPoolSize, p.isParallelEnabled(projectCmds), p.prjCmdRunner.Plan)
+	}
 	ctx.CommandHasErrors = result.HasErrors()
 
 	if p.autoMerger.automergeEnabled(projectCmds) && result.HasErrors() {

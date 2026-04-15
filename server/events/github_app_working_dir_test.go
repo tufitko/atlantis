@@ -48,7 +48,7 @@ func TestClone_GithubAppNoneExisting(t *testing.T) {
 		GithubHostname: testServer,
 	}
 
-	cloneDir, err := gwd.Clone(logger, models.Repo{}, models.PullRequest{
+	cloneDir, err := gwd.CloneFull(logger, models.Repo{}, models.PullRequest{
 		BaseRepo:   models.Repo{},
 		HeadBranch: "branch",
 	}, "default")

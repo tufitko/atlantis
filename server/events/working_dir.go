@@ -49,6 +49,10 @@ type WorkingDir interface {
 	// Clone git clones headRepo, checks out the branch and then returns the
 	// absolute path to the root of the cloned repo.
 	Clone(logger logging.SimpleLogging, headRepo models.Repo, p models.PullRequest, workspace string) (string, error)
+	// CloneFull git clones headRepo, checks out the branch and then returns the
+	// absolute path to the root of the cloned repo. Unlike Clone, it performs
+	// the actual git work.
+	CloneFull(logger logging.SimpleLogging, headRepo models.Repo, p models.PullRequest, workspace string) (string, error)
 	// MergeAgain refreshes the working tree if the base branch has advanced since
 	// the last clone/merge. Returns true if the working tree was updated — either
 	// because this goroutine performed the merge or because a concurrent goroutine
@@ -120,12 +124,28 @@ func (w *FileWorkspace) CheckoutMergeEnabled() bool {
 	return w.CheckoutMerge
 }
 
-// Clone git clones headRepo, checks out the branch and then returns the absolute
-// path to the root of the cloned repo.
+// Clone returns the absolute path to the root of the cloned repo. The repo is
+// expected to have been cloned/updated already by CloneFull (run from the
+// pre-workflow hook stage), so no git work is done when the directory exists.
+// A missing directory (e.g. a non-default workspace that pre-workflow hooks
+// never clone) falls back to a full clone.
+func (w *FileWorkspace) Clone(logger logging.SimpleLogging, headRepo models.Repo, p models.PullRequest, workspace string) (string, error) {
+	cloneDir, err := w.validateCloneDir(p.BaseRepo, p, workspace)
+	if err != nil {
+		return "", err
+	}
+	if _, err := os.Stat(cloneDir); err != nil {
+		return w.CloneFull(logger, headRepo, p, workspace)
+	}
+	return cloneDir, nil
+}
+
+// CloneFull git clones headRepo, checks out the branch and then returns the
+// absolute path to the root of the cloned repo.
 // If the repo already exists and is at
 // the right commit it does nothing. This is to support running commands in
 // multiple dirs of the same repo without deleting existing plans.
-func (w *FileWorkspace) Clone(logger logging.SimpleLogging, headRepo models.Repo, p models.PullRequest, workspace string) (string, error) {
+func (w *FileWorkspace) CloneFull(logger logging.SimpleLogging, headRepo models.Repo, p models.PullRequest, workspace string) (string, error) {
 	cloneDir, err := w.validateCloneDir(p.BaseRepo, p, workspace)
 	if err != nil {
 		return "", err
@@ -135,13 +155,18 @@ func (w *FileWorkspace) Clone(logger logging.SimpleLogging, headRepo models.Repo
 	// Fast path: if the directory already exists and is at the right commit,
 	// verify under a READ lock so we don't block concurrent plan operations.
 	// isBranchAtTargetRef only runs "git rev-parse" which is read-only.
-	if _, err := os.Stat(cloneDir); err == nil {
-		gitReadUnlockFn := w.gitReadLock(cloneDir)
-		isUpToDate, err := w.isBranchAtTargetRef(logger, c, p.HeadCommit)
-		gitReadUnlockFn()
-		if err == nil && isUpToDate {
-			logger.Info("repo is at correct commit %q so will not re-clone (fast path)", p.HeadCommit)
-			return cloneDir, nil
+	// Merge checkouts of real PRs can't take it: even when the head commit is
+	// unchanged the base branch may have advanced, which requires the
+	// hasBaseBranchDiverged check + re-merge in attemptReuseCloneDir.
+	if !(w.CheckoutMerge && p.Num > 0) {
+		if _, err := os.Stat(cloneDir); err == nil {
+			gitReadUnlockFn := w.gitReadLock(cloneDir)
+			isUpToDate, err := w.isBranchAtTargetRef(logger, c, p.HeadCommit)
+			gitReadUnlockFn()
+			if err == nil && isUpToDate {
+				logger.Info("repo is at correct commit %q so will not re-clone (fast path)", p.HeadCommit)
+				return cloneDir, nil
+			}
 		}
 	}
 
@@ -179,6 +204,24 @@ func (w *FileWorkspace) attemptReuseCloneDir(logger logging.SimpleLogging, c wra
 		return false, err
 	}
 	if isUpToDate {
+		// Synthetic non-PR refs (negative pull numbers) are checked out
+		// directly, not merged, so there is no merge to refresh.
+		if w.CheckoutMerge && c.pr.Num > 0 {
+			// For merge strategy, even though the head commit hasn't changed,
+			// the base branch may have new commits or the PR's target branch
+			// may have changed. Fetch and check if we need to re-merge.
+			baseDiverged, bErr := w.hasBaseBranchDiverged(logger, c)
+			if bErr != nil {
+				return false, bErr
+			}
+			if baseDiverged {
+				logger.Info("head commit %q is up to date but base branch %q has diverged, re-merging", c.pr.HeadCommit, c.pr.BaseBranch)
+				if err := w.updateToRef(logger, c, c.pr.HeadCommit); err != nil {
+					return false, err
+				}
+				return true, nil
+			}
+		}
 		logger.Info("repo is at correct commit %q so will not re-clone", c.pr.HeadCommit)
 		return true, nil
 	}
@@ -549,6 +592,45 @@ func (w *FileWorkspace) pullHeadRef(logger logging.SimpleLogging, cloneDir strin
 
 	logger.Debug("GetDivergedFiles: HEAD^2 unavailable, using HEAD")
 	return "HEAD"
+}
+
+// hasBaseBranchDiverged checks whether the base branch has new commits since the
+// last merge, or if the PR's target branch has changed. It fetches from origin
+// to get the latest state and compares the first parent of the current merge
+// commit (HEAD^1) with the current tip of origin/<BaseBranch>.
+func (w *FileWorkspace) hasBaseBranchDiverged(logger logging.SimpleLogging, c wrappedGitContext) (bool, error) {
+	if err := w.wrappedGit(logger, c, "fetch", "origin"); err != nil {
+		return false, err
+	}
+
+	// HEAD^1 is the base branch commit that was used in the last merge.
+	mergedBaseCmd := exec.Command("git", "rev-parse", "HEAD^1") // #nosec
+	mergedBaseCmd.Dir = c.dir
+	mergedBaseOutput, err := mergedBaseCmd.CombinedOutput()
+	if err != nil {
+		return false, fmt.Errorf("rev-parse HEAD^1: %s: %s", strings.TrimSpace(string(mergedBaseOutput)), err)
+	}
+	mergedBase := strings.TrimSpace(string(mergedBaseOutput))
+
+	// Get the current tip of the base branch on origin.
+	currentBaseRef := fmt.Sprintf("origin/%s", c.pr.BaseBranch)
+	currentBaseCmd := exec.Command("git", "rev-parse", currentBaseRef) // #nosec
+	currentBaseCmd.Dir = c.dir
+	currentBaseOutput, err := currentBaseCmd.CombinedOutput()
+	if err != nil {
+		// Can't resolve origin/<BaseBranch> — the target branch may have changed
+		// to one that doesn't exist on this remote.
+		logger.Info("cannot resolve %s after fetch, base branch may have changed: %s", currentBaseRef, strings.TrimSpace(string(currentBaseOutput)))
+		return true, nil
+	}
+	currentBase := strings.TrimSpace(string(currentBaseOutput))
+
+	if mergedBase != currentBase {
+		logger.Info("base branch diverged: merged base was %s, origin/%s is now %s", mergedBase, c.pr.BaseBranch, currentBase)
+		return true, nil
+	}
+
+	return false, nil
 }
 
 func (w *FileWorkspace) remoteHasBranch(logger logging.SimpleLogging, c wrappedGitContext, branch string) bool {

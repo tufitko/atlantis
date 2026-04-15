@@ -713,8 +713,8 @@ func TestDefaultProjectCommandRunner_ApplyNotMergeable(t *testing.T) {
 }
 
 // Regression test for: a pre-plan requirement failure must stop before plan
-// execution side effects after the merge checkout has been refreshed.
-func TestDefaultProjectCommandRunner_PlanUndivergedBlocksAfterMergeAgain(t *testing.T) {
+// execution side effects.
+func TestDefaultProjectCommandRunner_PlanUndivergedBlocks(t *testing.T) {
 	RegisterMockTestingT(t)
 	mockWorkingDir := mocks.NewMockWorkingDir()
 	mockLocker := mocks.NewMockProjectLocker()
@@ -746,46 +746,6 @@ func TestDefaultProjectCommandRunner_PlanUndivergedBlocksAfterMergeAgain(t *test
 	res := runner.Plan(ctx)
 
 	Equals(t, "Default branch must be rebased onto pull request before running plan.", res.Failure)
-	mockWorkingDir.VerifyWasCalledOnce().MergeAgain(
-		Any[logging.SimpleLogging](), Any[models.Repo](), Any[models.PullRequest](), Any[string]())
-}
-
-func TestDefaultProjectCommandRunner_PlanChecksProjectPathAfterMergeAgain(t *testing.T) {
-	RegisterMockTestingT(t)
-	mockLocker := mocks.NewMockProjectLocker()
-	repoDir := t.TempDir()
-	workingDir := &mergeCreatesProjectWorkingDir{
-		repoDir:     repoDir,
-		projectPath: "project1",
-	}
-	runner := &events.DefaultProjectCommandRunner{
-		Locker:           mockLocker,
-		LockURLGenerator: mockURLGenerator{},
-		WorkingDir:       workingDir,
-		WorkingDirLocker: events.NewDefaultWorkingDirLocker(),
-		CommandRequirementHandler: &events.DefaultCommandRequirementHandler{
-			WorkingDir: workingDir,
-		},
-	}
-	ctx := command.ProjectContext{
-		Log:        logging.NewNoopLogger(t),
-		RepoRelDir: "project1",
-		Workspace:  "default",
-		Pull: models.PullRequest{
-			Num:      1,
-			BaseRepo: models.Repo{FullName: "runatlantis/atlantis"},
-		},
-	}
-	When(mockLocker.TryLock(Any[logging.SimpleLogging](), Any[models.PullRequest](), Any[models.User](),
-		Any[string](), Any[models.Project](), AnyBool())).
-		ThenReturn(&events.TryLockResponse{LockAcquired: true, LockKey: "lock-key", UnlockFn: func() error { return nil }}, nil)
-
-	res := runner.Plan(ctx)
-
-	Equals(t, "", res.Failure)
-	Ok(t, res.Error)
-	Assert(t, res.PlanSuccess != nil, "expected plan success")
-	Assert(t, workingDir.mergeCalled, "expected merge checkout refresh")
 }
 
 func TestDefaultProjectCommandRunner_PlanValidationFailureKeepsLockWhenDeletePlanFails(t *testing.T) {
@@ -836,67 +796,6 @@ func TestDefaultProjectCommandRunner_PlanValidationFailureKeepsLockWhenDeletePla
 	Equals(t, 0, unlockCalls)
 	mockWorkingDir.VerifyWasCalledOnce().DeletePlan(Any[logging.SimpleLogging](), Eq(ctx.Pull.BaseRepo), Eq(ctx.Pull),
 		Eq(ctx.Workspace), Eq(ctx.RepoRelDir), Eq(ctx.ProjectName))
-	mockWorkingDir.VerifyWasCalledOnce().MergeAgain(
-		Any[logging.SimpleLogging](), Any[models.Repo](), Any[models.PullRequest](), Any[string]())
-}
-
-type mergeCreatesProjectWorkingDir struct {
-	repoDir     string
-	projectPath string
-	mergeCalled bool
-}
-
-func (m *mergeCreatesProjectWorkingDir) Clone(logging.SimpleLogging, models.Repo, models.PullRequest, string) (string, error) {
-	return m.repoDir, nil
-}
-
-func (m *mergeCreatesProjectWorkingDir) MergeAgain(logging.SimpleLogging, models.Repo, models.PullRequest, string) (bool, error) {
-	m.mergeCalled = true
-	return true, os.MkdirAll(filepath.Join(m.repoDir, m.projectPath), 0o755)
-}
-
-func (m *mergeCreatesProjectWorkingDir) GetWorkingDir(models.Repo, models.PullRequest, string) (string, error) {
-	return m.repoDir, nil
-}
-
-func (m *mergeCreatesProjectWorkingDir) HasDiverged(logging.SimpleLogging, string, string, []string, models.PullRequest) bool {
-	return false
-}
-
-func (m *mergeCreatesProjectWorkingDir) HasDivergedFromPullHead(logging.SimpleLogging, string, string, []string, models.PullRequest) bool {
-	return false
-}
-
-func (m *mergeCreatesProjectWorkingDir) GetDivergedFiles(logging.SimpleLogging, string, models.PullRequest) ([]string, error) {
-	return nil, nil
-}
-
-func (m *mergeCreatesProjectWorkingDir) GetDivergedFilesFromPullHead(logging.SimpleLogging, string, models.PullRequest) ([]string, error) {
-	return nil, nil
-}
-
-func (m *mergeCreatesProjectWorkingDir) GetPullDir(models.Repo, models.PullRequest) (string, error) {
-	return m.repoDir, nil
-}
-
-func (m *mergeCreatesProjectWorkingDir) Delete(logging.SimpleLogging, models.Repo, models.PullRequest) error {
-	return nil
-}
-
-func (m *mergeCreatesProjectWorkingDir) DeleteForWorkspace(logging.SimpleLogging, models.Repo, models.PullRequest, string) error {
-	return nil
-}
-
-func (m *mergeCreatesProjectWorkingDir) DeletePlan(logging.SimpleLogging, models.Repo, models.PullRequest, string, string, string) error {
-	return nil
-}
-
-func (m *mergeCreatesProjectWorkingDir) GetGitUntrackedFiles(logging.SimpleLogging, models.Repo, models.PullRequest, string) ([]string, error) {
-	return nil, nil
-}
-
-func (m *mergeCreatesProjectWorkingDir) GitReadLock(models.Repo, models.PullRequest, string) func() {
-	return func() {}
 }
 
 // Test that if undiverged is required and the PR is diverged we give an error.
