@@ -153,6 +153,7 @@ Runs `terraform apply` for the plan that matches the directory/project/workspace
 
 ::: tip
 If no directory/project/workspace is specified, ex. `atlantis apply`, this command will apply **all unapplied plans from this pull request**.
+After a partial apply, run `atlantis apply` again to retry failed applies and apply the remaining plans. Projects already recorded as successfully applied are skipped, even if a custom workflow left their plan files on disk. The remaining plans must still be valid for the current pull request.
 This includes all projects that have been planned manually with `atlantis plan` `-p`/`-d`/`-w` since the last autoplan or `atlantis plan` command.
 For Atlantis commands to work,  Atlantis needs to know the location where the plan file is. For that, you can use $PLANFILE which will contain the path of the plan file to be used in your custom steps. i.e `terraform plan -out $PLANFILE`
 :::

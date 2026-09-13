@@ -1332,6 +1332,22 @@ func (p *DefaultProjectCommandBuilder) buildAllProjectCommandsByPlan(ctx *comman
 	}
 
 	if commentCmd.Name == command.Apply {
+		// Custom apply workflows may leave plan files behind after success.
+		// Do not treat these artifacts as pending work on an apply-all retry.
+		// Keep every other plan so the existing freshness and completeness
+		// validation still rejects stale, unknown, or missing plans.
+		if ctx.PullStatus != nil {
+			pendingPlans := make([]PendingPlan, 0, len(plans))
+			for _, plan := range plans {
+				project := findProjectInPullStatus(ctx.PullStatus, plan.Workspace, plan.RepoRelDir, plan.ProjectName)
+				if project != nil && project.Status == models.AppliedPlanStatus {
+					ctx.Log.Debug("skipping applied plan for dir %q workspace %q project %q", plan.RepoRelDir, plan.Workspace, plan.ProjectName)
+					continue
+				}
+				pendingPlans = append(pendingPlans, plan)
+			}
+			plans = pendingPlans
+		}
 		hasActivePlan := false
 		if p.WorkingDirLocker != nil {
 			hasActivePlan = p.WorkingDirLocker.HasCommandLock(ctx.Pull.BaseRepo.FullName, ctx.Pull.Num, command.Plan)
