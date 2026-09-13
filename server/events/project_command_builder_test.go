@@ -3524,6 +3524,29 @@ func TestDefaultProjectCommandBuilder_BuildMultiApply(t *testing.T) {
 	for _, ctx := range ctxs {
 		Equals(t, emptyFileHash, ctx.ExpectedPlanHash)
 	}
+
+	// A custom apply can leave its plan file behind. Retrying apply-all must
+	// skip only the applied workspace, not another project at the same path.
+	retryCtx := &command.Context{
+		Log: logger, Scope: scope,
+		Pull: models.PullRequest{HeadCommit: "abc123"},
+		PullStatus: &models.PullStatus{
+			Pull: models.PullRequest{HeadCommit: "abc123"},
+			Projects: []models.ProjectStatus{
+				{RepoRelDir: "project1", Workspace: "workspace1", Status: models.AppliedPlanStatus},
+				{RepoRelDir: "project2", Workspace: "workspace1", Status: models.PlannedPlanStatus},
+				{RepoRelDir: "project1", Workspace: "workspace2", Status: models.ErroredApplyStatus},
+				{RepoRelDir: "project2", Workspace: "workspace2", Status: models.AppliedPlanStatus},
+			},
+		},
+	}
+	ctxs, err = builder.BuildApplyCommands(retryCtx, &events.CommentCommand{Name: command.Apply})
+	Ok(t, err)
+	Equals(t, 2, len(ctxs))
+	Equals(t, "project2", ctxs[0].RepoRelDir)
+	Equals(t, "workspace1", ctxs[0].Workspace)
+	Equals(t, "project1", ctxs[1].RepoRelDir)
+	Equals(t, "workspace2", ctxs[1].Workspace)
 }
 
 // Test that autodiscover.ignore_paths is respected during multi-apply.
