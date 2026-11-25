@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/runatlantis/atlantis/server/core/config/valid"
 	"github.com/runatlantis/atlantis/server/core/runtime"
@@ -202,6 +203,21 @@ type ProjectOutputWrapper struct {
 	ProjectCommandRunner
 	JobMessageSender JobMessageSender
 	JobURLSetter     JobURLSetter
+
+	// unpublishedSuccess holds the projects whose immediate success status
+	// could not be delivered to the VCS. The deferred publishers retry them.
+	unpublishedSuccess sync.Map
+}
+
+func unpublishedSuccessKey(commandName command.Name, ctx command.ProjectContext) string {
+	return fmt.Sprintf("%s|%s|%d|%s|%s|%s|%s", commandName.String(), ctx.Pull.BaseRepo.FullName, ctx.Pull.Num, ctx.Pull.HeadCommit, ctx.RepoRelDir, ctx.Workspace, ctx.ProjectName)
+}
+
+// takeUnpublishedSuccess reports whether the immediate success status of the
+// project failed to publish, and forgets it.
+func (p *ProjectOutputWrapper) takeUnpublishedSuccess(commandName command.Name, ctx command.ProjectContext) bool {
+	_, missed := p.unpublishedSuccess.LoadAndDelete(unpublishedSuccessKey(commandName, ctx))
+	return missed
 }
 
 func (p *ProjectOutputWrapper) Plan(ctx command.ProjectContext) command.ProjectCommandOutput {
@@ -249,25 +265,29 @@ func (p *ProjectOutputWrapper) updateProjectPRStatus(commandName command.Name, c
 	// finishes. Upstream defers it until the whole command is durable, which on
 	// pull requests with many projects leaves every check pending until the last
 	// project is done. The deferred publishers below still run afterwards and
-	// turn the check red if the command result is rejected.
+	// turn the check red if the command result is rejected, and retry a
+	// success status that could not be delivered here.
 	if err := p.JobURLSetter.SetJobURLWithStatus(ctx, commandName, models.SuccessCommitStatus, &result); err != nil {
 		ctx.Log.Err("updating project PR status: %s", err)
+		p.unpublishedSuccess.Store(unpublishedSuccessKey(commandName, ctx), struct{}{})
 	}
 
 	return result
 }
 
 func (p *ProjectOutputWrapper) PublishDeferredApplyStatuses(projectCmds []command.ProjectContext, result command.Result, status models.CommitStatus) {
-	// Fork: success was already published when each project finished.
-	if status == models.SuccessCommitStatus {
-		return
-	}
+	// Fork: success was already published when each project finished, so only
+	// the projects whose immediate status failed to publish are retried.
+	onlyMissed := status == models.SuccessCommitStatus
 	for _, projectResult := range result.ProjectResults {
 		if projectResult.Command != command.Apply || projectResult.ApplySuccess == "" || projectResult.Error != nil || projectResult.Failure != "" {
 			continue
 		}
 		ctx, ok := deferredApplyProjectContext(projectCmds, projectResult)
 		if !ok || ctx.SuppressVCSStatus {
+			continue
+		}
+		if missed := p.takeUnpublishedSuccess(command.Apply, ctx); onlyMissed && !missed {
 			continue
 		}
 		projectOutput := projectResult.ProjectCommandOutput
@@ -1300,10 +1320,9 @@ func requiresManagedPlanFileForApply(ctx command.ProjectContext) bool {
 }
 
 func (p *ProjectOutputWrapper) PublishDeferredPlanStatuses(projectCmds []command.ProjectContext, result command.Result, status models.CommitStatus) {
-	// Fork: success was already published when each project finished.
-	if status == models.SuccessCommitStatus {
-		return
-	}
+	// Fork: success was already published when each project finished, so only
+	// the projects whose immediate status failed to publish are retried.
+	onlyMissed := status == models.SuccessCommitStatus
 	for _, res := range result.ProjectResults {
 		if res.Command != command.Plan || res.PlanSuccess == nil || res.Error != nil || res.Failure != "" {
 			continue
@@ -1311,6 +1330,9 @@ func (p *ProjectOutputWrapper) PublishDeferredPlanStatuses(projectCmds []command
 		for _, ctx := range projectCmds {
 			if ctx.CommandName != command.Plan || ctx.RepoRelDir != res.RepoRelDir || ctx.Workspace != res.Workspace || ctx.ProjectName != res.ProjectName || ctx.SuppressVCSStatus {
 				continue
+			}
+			if missed := p.takeUnpublishedSuccess(command.Plan, ctx); onlyMissed && !missed {
+				break
 			}
 			output := res.ProjectCommandOutput
 			if result.Error != nil {
