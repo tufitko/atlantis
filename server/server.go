@@ -850,8 +850,11 @@ func NewServer(userConfig UserConfig, config Config) (*Server, error) {
 		ProjectJobURLGenerator:    router,
 		CommandRequirementHandler: applyRequirementHandler,
 		CancellationTracker:       cancellationTracker,
-		ApplyPlanValidator:        &events.DefaultApplyPlanValidator{PullStatusFetcher: database, LivePullHeadFetcher: livePullHeadFetcher},
-		PlanStore:                 planStore,
+		// Fork: no LivePullHeadFetcher, so a project apply does not fetch the
+		// pull request from the VCS. The apply command checks the head once
+		// before running projects.
+		ApplyPlanValidator: &events.DefaultApplyPlanValidator{PullStatusFetcher: database},
+		PlanStore:          planStore,
 	}
 
 	dbUpdater := &events.DBUpdater{

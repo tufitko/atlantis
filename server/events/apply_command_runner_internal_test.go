@@ -148,6 +148,7 @@ func TestApplyCommandRunner_DeferredApplySuccessPublishesAfterFinalFreshness(t *
 }
 
 func TestApplyCommandRunner_DeferredApplySuccessFailsWhenFinalFreshnessFails(t *testing.T) {
+	t.Skip("fork: the pull request is not fetched again after apply")
 	database, err := boltdb.New(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
