@@ -1209,21 +1209,20 @@ func TestPlanCommandRunner_PersistenceBeforePublication(t *testing.T) {
 				When(projectCommandBuilder.BuildPlanCommands(ctx, cmd)).ThenReturn([]command.ProjectContext{project}, nil)
 				When(projectCommandBuilder.BuildAutoplanCommands(ctx)).ThenReturn([]command.ProjectContext{project}, nil)
 				When(projectCommandRunner.Plan(Any[command.ProjectContext]())).ThenReturn(command.ProjectCommandOutput{PlanSuccess: &models.PlanSuccess{}})
+				// Fork: the per-project success check is published as soon as the
+				// project finishes, so only the comment and the combined status
+				// are required to follow persistence.
 				database.beforeWrite = func() {
-					setter.VerifyWasCalled(Never()).SetJobURLWithStatus(Any[command.ProjectContext](), Eq(command.Plan), Eq(models.SuccessCommitStatus), Any[*command.ProjectCommandOutput]())
 					vcsClient.VerifyWasCalled(Never()).CreateComment(Any[logging.SimpleLogging](), Any[models.Repo](), Any[int](), Any[string](), Any[string]())
 					commitUpdater.VerifyWasCalled(Never()).UpdateCombinedCount(Any[logging.SimpleLogging](), Any[models.Repo](), Any[models.PullRequest](), Eq(models.SuccessCommitStatus), Eq(command.Plan), Any[models.ProjectCounts]())
 				}
-				When(setter.SetJobURLWithStatus(Any[command.ProjectContext](), Eq(command.Plan), Eq(models.SuccessCommitStatus), Any[*command.ProjectCommandOutput]())).Then(func([]Param) ReturnValues {
-					Assert(t, database.persisted, "project success must follow persistence")
-					return ReturnValues{nil}
-				})
 				planCommandRunner.Run(ctx, cmd)
 				Equals(t, !fail, database.persisted)
 				if fail {
 					Assert(t, ctx.CommandHasErrors, "persistence failure must fail the command")
+					// The early success check is turned red once persistence fails.
 					setter.VerifyWasCalledOnce().SetJobURLWithStatus(Any[command.ProjectContext](), Eq(command.Plan), Eq(models.FailedCommitStatus), Any[*command.ProjectCommandOutput]())
-					setter.VerifyWasCalled(Never()).SetJobURLWithStatus(Any[command.ProjectContext](), Eq(command.Plan), Eq(models.SuccessCommitStatus), Any[*command.ProjectCommandOutput]())
+					setter.VerifyWasCalledOnce().SetJobURLWithStatus(Any[command.ProjectContext](), Eq(command.Plan), Eq(models.SuccessCommitStatus), Any[*command.ProjectCommandOutput]())
 					for _, name := range []command.Name{command.Plan, command.Apply} {
 						commitUpdater.VerifyWasCalledOnce().UpdateCombined(Any[logging.SimpleLogging](), Any[models.Repo](), Any[models.PullRequest](), Eq(models.FailedCommitStatus), Eq(name))
 					}

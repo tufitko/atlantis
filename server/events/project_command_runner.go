@@ -245,10 +245,11 @@ func (p *ProjectOutputWrapper) updateProjectPRStatus(commandName command.Name, c
 		return result
 	}
 
-	if commandName == command.Apply || (commandName == command.Plan && !ctx.API) {
-		return result
-	}
-
+	// Fork: publish the project's success status as soon as the project
+	// finishes. Upstream defers it until the whole command is durable, which on
+	// pull requests with many projects leaves every check pending until the last
+	// project is done. The deferred publishers below still run afterwards and
+	// turn the check red if the command result is rejected.
 	if err := p.JobURLSetter.SetJobURLWithStatus(ctx, commandName, models.SuccessCommitStatus, &result); err != nil {
 		ctx.Log.Err("updating project PR status: %s", err)
 	}
@@ -257,6 +258,10 @@ func (p *ProjectOutputWrapper) updateProjectPRStatus(commandName command.Name, c
 }
 
 func (p *ProjectOutputWrapper) PublishDeferredApplyStatuses(projectCmds []command.ProjectContext, result command.Result, status models.CommitStatus) {
+	// Fork: success was already published when each project finished.
+	if status == models.SuccessCommitStatus {
+		return
+	}
 	for _, projectResult := range result.ProjectResults {
 		if projectResult.Command != command.Apply || projectResult.ApplySuccess == "" || projectResult.Error != nil || projectResult.Failure != "" {
 			continue
@@ -1295,6 +1300,10 @@ func requiresManagedPlanFileForApply(ctx command.ProjectContext) bool {
 }
 
 func (p *ProjectOutputWrapper) PublishDeferredPlanStatuses(projectCmds []command.ProjectContext, result command.Result, status models.CommitStatus) {
+	// Fork: success was already published when each project finished.
+	if status == models.SuccessCommitStatus {
+		return
+	}
 	for _, res := range result.ProjectResults {
 		if res.Command != command.Plan || res.PlanSuccess == nil || res.Error != nil || res.Failure != "" {
 			continue

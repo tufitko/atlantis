@@ -363,11 +363,9 @@ func TestProjectOutputWrapper(t *testing.T) {
 			}
 
 			mockJobURLSetter.VerifyWasCalled(Once()).SetJobURLWithStatus(ctx, c.CommandName, models.PendingCommitStatus, nil)
-			if c.Success {
-				mockJobURLSetter.VerifyWasCalled(Never()).SetJobURLWithStatus(ctx, c.CommandName, models.SuccessCommitStatus, &prjResult)
-			} else {
-				mockJobURLSetter.VerifyWasCalled(Once()).SetJobURLWithStatus(ctx, c.CommandName, expCommitStatus, &prjResult)
-			}
+			// Fork: success is published as soon as the project finishes, not
+			// deferred until the whole command completes.
+			mockJobURLSetter.VerifyWasCalled(Once()).SetJobURLWithStatus(ctx, c.CommandName, expCommitStatus, &prjResult)
 
 			switch c.CommandName {
 			case command.Plan:
@@ -404,7 +402,10 @@ func TestProjectOutputWrapper(t *testing.T) {
 	}
 }
 
-func TestProjectOutputWrapper_DefersRemoteApplyURLSuccessStatus(t *testing.T) {
+// Fork: the success status is published when the project finishes. The
+// deferred publisher must not repeat it, but must still be able to turn the
+// check red when the command result is rejected afterwards.
+func TestProjectOutputWrapper_PublishesApplySuccessImmediately(t *testing.T) {
 	RegisterMockTestingT(t)
 	ctx := command.ProjectContext{
 		Log:        logging.NewNoopLogger(t),
@@ -428,17 +429,20 @@ func TestProjectOutputWrapper_DefersRemoteApplyURLSuccessStatus(t *testing.T) {
 	runner.Apply(ctx)
 
 	mockJobURLSetter.VerifyWasCalled(Once()).SetJobURLWithStatus(ctx, command.Apply, models.PendingCommitStatus, nil)
-	mockJobURLSetter.VerifyWasCalled(Never()).SetJobURLWithStatus(ctx, command.Apply, models.SuccessCommitStatus, &prjResult)
+	mockJobURLSetter.VerifyWasCalled(Once()).SetJobURLWithStatus(ctx, command.Apply, models.SuccessCommitStatus, &prjResult)
 	mockJobMessageSender.VerifyWasCalledOnce().Send(ctx, "", true)
 
-	runner.PublishDeferredApplyStatuses([]command.ProjectContext{ctx}, command.Result{ProjectResults: []command.ProjectResult{{
+	result := command.Result{ProjectResults: []command.ProjectResult{{
 		ProjectCommandOutput: prjResult,
 		Command:              command.Apply,
 		RepoRelDir:           ctx.RepoRelDir,
 		Workspace:            ctx.Workspace,
-	}}}, models.SuccessCommitStatus)
-
+	}}}
+	runner.PublishDeferredApplyStatuses([]command.ProjectContext{ctx}, result, models.SuccessCommitStatus)
 	mockJobURLSetter.VerifyWasCalled(Once()).SetJobURLWithStatus(ctx, command.Apply, models.SuccessCommitStatus, &prjResult)
+
+	runner.PublishDeferredApplyStatuses([]command.ProjectContext{ctx}, result, models.FailedCommitStatus)
+	mockJobURLSetter.VerifyWasCalled(Once()).SetJobURLWithStatus(ctx, command.Apply, models.FailedCommitStatus, &prjResult)
 }
 
 func TestProjectOutputWrapperSuppressesJobOutput(t *testing.T) {
