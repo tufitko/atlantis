@@ -797,8 +797,8 @@ func TestDefaultProjectCommandRunner_ApplyNotMergeable(t *testing.T) {
 }
 
 // Regression test for: a pre-plan requirement failure must stop before plan
-// execution side effects after the merge checkout has been refreshed.
-func TestDefaultProjectCommandRunner_PlanUndivergedBlocksAfterMergeAgain(t *testing.T) {
+// execution side effects.
+func TestDefaultProjectCommandRunner_PlanUndivergedBlocks(t *testing.T) {
 	RegisterMockTestingT(t)
 	mockWorkingDir := mocks.NewMockWorkingDir()
 	mockLocker := mocks.NewMockProjectLocker()
@@ -830,46 +830,6 @@ func TestDefaultProjectCommandRunner_PlanUndivergedBlocksAfterMergeAgain(t *test
 	res := runner.Plan(ctx)
 
 	Equals(t, "Default branch must be rebased onto pull request before running plan.", res.Failure)
-	mockWorkingDir.VerifyWasCalledOnce().MergeAgain(
-		Any[logging.SimpleLogging](), Any[models.Repo](), Any[models.PullRequest](), Any[string]())
-}
-
-func TestDefaultProjectCommandRunner_PlanChecksProjectPathAfterMergeAgain(t *testing.T) {
-	RegisterMockTestingT(t)
-	mockLocker := mocks.NewMockProjectLocker()
-	repoDir := t.TempDir()
-	workingDir := &mergeCreatesProjectWorkingDir{
-		repoDir:     repoDir,
-		projectPath: "project1",
-	}
-	runner := &events.DefaultProjectCommandRunner{
-		Locker:           mockLocker,
-		LockURLGenerator: mockURLGenerator{},
-		WorkingDir:       workingDir,
-		WorkingDirLocker: events.NewDefaultWorkingDirLocker(),
-		CommandRequirementHandler: &events.DefaultCommandRequirementHandler{
-			WorkingDir: workingDir,
-		},
-	}
-	ctx := command.ProjectContext{
-		Log:        logging.NewNoopLogger(t),
-		RepoRelDir: "project1",
-		Workspace:  "default",
-		Pull: models.PullRequest{
-			Num:      1,
-			BaseRepo: models.Repo{FullName: "runatlantis/atlantis"},
-		},
-	}
-	When(mockLocker.TryLock(Any[logging.SimpleLogging](), Any[models.PullRequest](), Any[models.User](),
-		Any[string](), Any[models.Project](), AnyBool())).
-		ThenReturn(&events.TryLockResponse{LockAcquired: true, LockKey: "lock-key", UnlockFn: func() error { return nil }}, nil)
-
-	res := runner.Plan(ctx)
-
-	Equals(t, "", res.Failure)
-	Ok(t, res.Error)
-	Assert(t, res.PlanSuccess != nil, "expected plan success")
-	Assert(t, workingDir.mergeCalled, "expected merge checkout refresh")
 }
 
 // Test that a project directory which is a committed symlink pointing outside
@@ -1042,8 +1002,6 @@ func TestDefaultProjectCommandRunner_PlanValidationFailureKeepsLockWhenDeletePla
 	Equals(t, 0, unlockCalls)
 	mockWorkingDir.VerifyWasCalledOnce().DeletePlan(Any[logging.SimpleLogging](), Eq(ctx.Pull.BaseRepo), Eq(ctx.Pull),
 		Eq(ctx.Workspace), Eq(ctx.RepoRelDir), Eq(ctx.ProjectName))
-	mockWorkingDir.VerifyWasCalledOnce().MergeAgain(
-		Any[logging.SimpleLogging](), Any[models.Repo](), Any[models.PullRequest](), Any[string]())
 }
 
 type mergeCreatesProjectWorkingDir struct {
@@ -1052,8 +1010,15 @@ type mergeCreatesProjectWorkingDir struct {
 	mergeCalled bool
 }
 
+// In this fork doPlan does not call MergeAgain: the checkout is refreshed by
+// CloneFull during the pre-workflow hook stage. Clone therefore materializes
+// the project dir that upstream's helper created from MergeAgain.
 func (m *mergeCreatesProjectWorkingDir) Clone(logging.SimpleLogging, models.Repo, models.PullRequest, string) (string, error) {
-	return m.repoDir, nil
+	return m.repoDir, os.MkdirAll(filepath.Join(m.repoDir, m.projectPath), 0o755)
+}
+
+func (m *mergeCreatesProjectWorkingDir) CloneFull(l logging.SimpleLogging, r models.Repo, p models.PullRequest, w string) (string, error) {
+	return m.Clone(l, r, p, w)
 }
 
 func (m *mergeCreatesProjectWorkingDir) MergeAgain(logging.SimpleLogging, models.Repo, models.PullRequest, string) (bool, error) {

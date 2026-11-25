@@ -1092,8 +1092,10 @@ func (p *DefaultProjectCommandBuilder) buildProjectPlanCommand(ctx *command.Cont
 	}
 
 	if DefaultWorkspace != workspace {
+		// Pre-workflow hooks only clone the default workspace, so a non-default
+		// workspace needs a real clone here.
 		ctx.Log.Debug("cloning repository with workspace %s", workspace)
-		_, err = p.WorkingDir.Clone(ctx.Log, ctx.HeadRepo, ctx.Pull, workspace)
+		_, err = p.WorkingDir.CloneFull(ctx.Log, ctx.HeadRepo, ctx.Pull, workspace)
 		if err != nil {
 			return pcc, err
 		}
@@ -1268,7 +1270,7 @@ func (p *DefaultProjectCommandBuilder) buildAllProjectCommandsByPlan(ctx *comman
 		// The default workspace is always cloned because it is read below as
 		// the source of truth for atlantis.yaml, even when it holds no plans.
 		for _, workspace := range withDefaultWorkspace(workspaces) {
-			if _, cloneErr := p.WorkingDir.Clone(ctx.Log, ctx.HeadRepo, ctx.Pull, workspace); cloneErr != nil {
+			if _, cloneErr := p.WorkingDir.CloneFull(ctx.Log, ctx.HeadRepo, ctx.Pull, workspace); cloneErr != nil {
 				return nil, fmt.Errorf("cloning workspace %q for apply: %w", workspace, cloneErr)
 			}
 		}
@@ -1606,7 +1608,7 @@ func (p *DefaultProjectCommandBuilder) buildProjectCommand(ctx *command.Context,
 			return projCtx, errors.New("no working directory found–did you run plan?")
 		}
 		ctx.Log.Info("working directory missing, re-cloning repo for apply")
-		repoDir, err = p.WorkingDir.Clone(ctx.Log, ctx.HeadRepo, ctx.Pull, DefaultWorkspace)
+		repoDir, err = p.WorkingDir.CloneFull(ctx.Log, ctx.HeadRepo, ctx.Pull, DefaultWorkspace)
 		if err != nil {
 			return projCtx, fmt.Errorf("re-cloning repo for apply: %w", err)
 		}
@@ -1669,7 +1671,7 @@ func (p *DefaultProjectCommandBuilder) cloneMissingWorkspaces(ctx *command.Conte
 			continue
 		}
 		cloned[workspace] = true
-		if _, err := p.WorkingDir.Clone(ctx.Log, ctx.HeadRepo, ctx.Pull, workspace); err != nil {
+		if _, err := p.WorkingDir.CloneFull(ctx.Log, ctx.HeadRepo, ctx.Pull, workspace); err != nil {
 			return fmt.Errorf("re-cloning workspace %q for apply: %w", workspace, err)
 		}
 	}

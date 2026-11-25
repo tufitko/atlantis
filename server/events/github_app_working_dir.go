@@ -28,6 +28,12 @@ func (g *GithubAppWorkingDir) Clone(logger logging.SimpleLogging, headRepo model
 	return g.WorkingDir.Clone(logger, headRepo, p, workspace)
 }
 
+// Clone writes a fresh token for Github App authentication
+func (g *GithubAppWorkingDir) CloneFull(logger logging.SimpleLogging, headRepo models.Repo, p models.PullRequest, workspace string) (string, error) {
+	g.fixReposURL(&p, &headRepo)
+	return g.WorkingDir.CloneFull(logger, headRepo, p, workspace)
+}
+
 func (g *GithubAppWorkingDir) MergeAgain(logger logging.SimpleLogging, headRepo models.Repo, p models.PullRequest, workspace string) (bool, error) {
 	g.fixReposURL(&p, &headRepo)
 	return g.WorkingDir.MergeAgain(logger, headRepo, p, workspace)

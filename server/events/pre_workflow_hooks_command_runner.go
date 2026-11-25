@@ -61,7 +61,7 @@ func (w *DefaultPreWorkflowHooksCommandRunner) RunPreHooks(ctx *command.Context,
 	ctx.Log.Debug("got workspace lock")
 	defer unlockFn()
 
-	repoDir, err := w.WorkingDir.Clone(ctx.Log, ctx.HeadRepo, ctx.Pull, DefaultWorkspace)
+	repoDir, err := w.WorkingDir.CloneFull(ctx.Log, ctx.HeadRepo, ctx.Pull, DefaultWorkspace)
 	if err != nil {
 		return err
 	}
