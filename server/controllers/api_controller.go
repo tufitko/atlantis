@@ -147,9 +147,10 @@ type APIRequest struct {
 }
 
 type APIRequestPath struct {
-	ProjectName string `json:"project_name,omitempty"`
-	Directory   string `json:"directory"`
-	Workspace   string `json:"workspace,omitempty"`
+	ProjectName string   `json:"project_name,omitempty"`
+	Directory   string   `json:"directory"`
+	Workspace   string   `json:"workspace,omitempty"`
+	Flags       []string `json:"flags,omitempty"`
 }
 
 func (a *APIRequest) getCommands(ctx *command.Context, cmdName command.Name, cmdBuilder func(*command.Context, *events.CommentCommand) ([]command.ProjectContext, error)) ([]command.ProjectContext, []*events.CommentCommand, error) {
@@ -167,6 +168,7 @@ func (a *APIRequest) getCommands(ctx *command.Context, cmdName command.Name, cmd
 			ProjectName: path.ProjectName,
 			RepoRelDir:  path.Directory,
 			Workspace:   path.Workspace,
+			Flags:       path.Flags,
 		})
 	}
 
