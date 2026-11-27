@@ -616,6 +616,12 @@ func TestClone_CheckoutMergeRemergesOnBaseAdvance(t *testing.T) {
 	// instead of wiping the directory with a full re-clone.
 	runCmd(t, cloneDir, "touch", "proof")
 
+	// Fork: plans made for this head commit must survive the re-merge,
+	// otherwise apply fails whenever the base branch moves after plan.
+	ignorePlanFiles(t, cloneDir)
+	planFile := filepath.Join(cloneDir, "project1/default.tfplan")
+	createPlanFile(t, planFile)
+
 	// Advance main by another commit after the merge happened.
 	runCmd(t, repoDir, "touch", "main-file")
 	runCmd(t, repoDir, "git", "add", "main-file")
@@ -633,6 +639,7 @@ func TestClone_CheckoutMergeRemergesOnBaseAdvance(t *testing.T) {
 	// And the proof file survived, so this was a re-merge, not a re-clone.
 	_, err = os.Stat(filepath.Join(cloneDir, "proof"))
 	Ok(t, err)
+	assert.FileExists(t, planFile, "plan of an unchanged head commit should be kept when only the base branch moved")
 }
 
 // Test that if there's a conflict when merging we return a good error.

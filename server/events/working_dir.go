@@ -216,7 +216,10 @@ func (w *FileWorkspace) attemptReuseCloneDir(logger logging.SimpleLogging, c wra
 			}
 			if baseDiverged {
 				logger.Info("head commit %q is up to date but base branch %q has diverged, re-merging", c.pr.HeadCommit, c.pr.BaseBranch)
-				if err := w.updateToRef(logger, c, c.pr.HeadCommit); err != nil {
+				// Fork: the pull request head is unchanged, so its plans stay
+				// valid. The base branch moves all the time and apply runs
+				// under project locks, so plans are kept here.
+				if err := w.updateToRef(logger, c, c.pr.HeadCommit, true); err != nil {
 					return false, err
 				}
 				return true, nil
@@ -230,7 +233,7 @@ func (w *FileWorkspace) attemptReuseCloneDir(logger logging.SimpleLogging, c wra
 		return false, nil
 	}
 	logger.Info("repo was already cloned but branch is not at correct commit, updating to %q", c.pr.HeadCommit)
-	err = w.updateToRef(logger, c, c.pr.HeadCommit)
+	err = w.updateToRef(logger, c, c.pr.HeadCommit, false)
 	if err != nil {
 		return false, err
 	}
@@ -646,7 +649,7 @@ func (w *FileWorkspace) remoteHasBranch(logger logging.SimpleLogging, c wrappedG
 }
 
 // Locks are acquired by the caller.
-func (w *FileWorkspace) updateToRef(logger logging.SimpleLogging, c wrappedGitContext, targetRef string) error {
+func (w *FileWorkspace) updateToRef(logger logging.SimpleLogging, c wrappedGitContext, targetRef string, keepPlans bool) error {
 
 	if c.pr.Num < 0 && c.pr.HardenedNonPRRefCheckout {
 		return w.checkoutNonPRRef(logger, c, targetRef)
@@ -694,6 +697,9 @@ func (w *FileWorkspace) updateToRef(logger logging.SimpleLogging, c wrappedGitCo
 		return fmt.Errorf("post-merge verification failed: HEAD^2 != %s", targetRef)
 	}
 
+	if keepPlans {
+		return nil
+	}
 	return w.cleanStalePlanFiles(logger, c)
 }
 
